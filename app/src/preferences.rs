@@ -10,6 +10,7 @@ use adw::{EntryRow, ExpanderRow, SwitchRow};
 use swai_core::config::Config;
 
 use std::path::PathBuf;
+use std::process::Command;
 
 /// A modal dialog for editing global configuration.
 #[derive(Clone)]
@@ -443,17 +444,17 @@ impl PreferencesDialog {
 
         content.append(&env_row);
 
-        // Instructions label.
+        // Instructions label (shows the bash function that gets copied).
+        let func_display = format!(
+            "claude-local() {{\n  export ANTHROPIC_BASE_URL=http://127.0.0.1:{port}/v1\n  \
+             export ANTHROPIC_AUTH_TOKEN=local\n  export ANTHROPIC_API_KEY=\"\"\n  local live_model\n  \
+             live_model=$(curl -s http://127.0.0.1:{port}/v1/models | grep -o '\"id\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4 | sed 's/^claude-//')\n  \
+             export ANTHROPIC_MODEL=\"${{live_model:-unknown}}[1m]\"\n  \
+             export ANTHROPIC_SMALL_FAST_MODEL=\"$ANTHROPIC_MODEL\"\n  claude \"${{ @}}\"\n}}",
+            port = port,
+        );
         let instructions = gtk::Label::builder()
-            .label(
-                &format!(
-                    "Add the following to your shell profile (e.g. ~/.bashrc or ~/.zshrc):\n\n\
-                     export ANTHROPIC_BASE_URL={base_url}\n\n\
-                     Then reload: source ~/.bashrc (or ~/.zshrc).\n\n\
-                     After that, `claude` will route through SWAI's local proxy.",
-                    base_url = base_url,
-                ),
-            )
+            .label(&func_display)
             .use_markup(false)
             .wrap(true)
             .xalign(0.0)
@@ -461,19 +462,34 @@ impl PreferencesDialog {
             .build();
         content.append(&instructions);
 
-        // Copy export command button.
-        let export_cmd = format!("export ANTHROPIC_BASE_URL={base_url}", base_url = base_url);
-        let copy_export_btn = gtk::Button::builder()
-            .label("Copy export command")
+        // Button row: "Copy Config Block" and "Open Config File".
+        let btn_box = gtk::Box::new(Orientation::Horizontal, 6);
+        btn_box.set_halign(gtk::Align::End);
+        btn_box.set_margin_top(6);
+
+        // Copy bash function button (primary action).
+        let func = func_display;
+        let copy_func_btn = gtk::Button::builder()
+            .label("Copy Config Block")
             .css_classes(vec!["flat", "suggested-action"])
-            .halign(gtk::Align::End)
-            .margin_top(6)
             .build();
-        let export_cmd_clone = export_cmd.clone();
-        copy_export_btn.connect_clicked(move |_| {
-            Self::copy_to_clipboard(&export_cmd_clone);
+        let func_clone = func.clone();
+        copy_func_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard(&func_clone);
         });
-        content.append(&copy_export_btn);
+        btn_box.append(&copy_func_btn);
+
+        // Open Config File button (opens home directory where .bashrc/.zshrc live).
+        let open_cfg_btn = gtk::Button::builder()
+            .label("Open Config File")
+            .css_classes(vec!["flat"])
+            .build();
+        open_cfg_btn.connect_clicked(move |_| {
+            Self::open_claude_cli_config();
+        });
+        btn_box.append(&open_cfg_btn);
+
+        content.append(&btn_box);
 
         expander.add_row(&content);
         expander
@@ -665,9 +681,12 @@ impl PreferencesDialog {
             .label(
                 &format!(
                     "Add the following to `~/.codex/config.toml`:\n\n\
-                     [proxy]\n\
+                     model_provider = \"swai\"\n\n\
+                     [model_providers.swai]\n\
+                     name = \"SWAI Local AI\"\n\
                      base_url = \"{base_url}\"\n\
-                     api_key = \"swai-local\"\n\n\
+                     wire_api = \"responses\"\n\
+                     api_key = \"local\"\n\n\
                      Restart Codex CLI after editing the config file.",
                     base_url = base_url,
                 ),
@@ -679,22 +698,36 @@ impl PreferencesDialog {
             .build();
         content.append(&instructions);
 
-        // Copy config block button.
+        // Button row: "Copy Config Block" and "Open Config File".
+        let btn_box = gtk::Box::new(Orientation::Horizontal, 6);
+        btn_box.set_halign(gtk::Align::End);
+        btn_box.set_margin_top(6);
+
         let config_block = format!(
-            "[proxy]\nbase_url = \"{base_url}\"\napi_key = \"swai-local\"",
+            "model_provider = \"swai\"\n\n[model_providers.swai]\nname = \"SWAI Local AI\"\nbase_url = \"{base_url}\"\nwire_api = \"responses\"\napi_key = \"local\"",
             base_url = base_url,
         );
         let copy_config_btn = gtk::Button::builder()
-            .label("Copy config block")
+            .label("Copy Config Block")
             .css_classes(vec!["flat", "suggested-action"])
-            .halign(gtk::Align::End)
-            .margin_top(6)
             .build();
         let config_block_clone = config_block.clone();
         copy_config_btn.connect_clicked(move |_| {
             Self::copy_to_clipboard(&config_block_clone);
         });
-        content.append(&copy_config_btn);
+        btn_box.append(&copy_config_btn);
+
+        // Open Config File button.
+        let open_cfg_btn = gtk::Button::builder()
+            .label("Open Config File")
+            .css_classes(vec!["flat"])
+            .build();
+        open_cfg_btn.connect_clicked(move |_| {
+            Self::open_codex_config();
+        });
+        btn_box.append(&open_cfg_btn);
+
+        content.append(&btn_box);
 
         expander.add_row(&content);
         expander
@@ -710,5 +743,54 @@ impl PreferencesDialog {
             clipboard.set_text(text);
             tracing::debug!("copied to clipboard: {}", text);
         }
+    }
+
+    /// Open `~/.codex/config.toml` in the system default text editor.
+    ///
+    /// If the file does not exist, creates `~/.codex/` and writes a default
+    /// `[proxy]` block before opening.
+    fn open_codex_config() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let codex_dir = PathBuf::from(&home).join(".codex");
+        let config_path = codex_dir.join("config.toml");
+
+        if !config_path.exists() {
+            // Create parent directory.
+            if let Err(e) = std::fs::create_dir_all(&codex_dir) {
+                tracing::warn!("failed to create ~/.codex/: {e}");
+                return;
+            }
+            // Write a default config block so the file is non-empty.
+            let default_block = "model_provider = \"swai\"\n\n[model_providers.swai]\nname = \"SWAI Local AI\"\nbase_url = \"http://127.0.0.1:8765/v1\"\nwire_api = \"responses\"\napi_key = \"local\"\n";
+            if let Err(e) = std::fs::write(&config_path, default_block) {
+                tracing::warn!("failed to write default config: {e}");
+                return;
+            }
+            tracing::info!("created default ~/.codex/config.toml");
+        }
+
+        // Open in the system default text editor via xdg-open.
+        let uri = format!("file://{}", config_path.display());
+        let _ = Command::new("xdg-open")
+            .arg(&uri)
+            .spawn();
+    }
+
+    /// Open `~/.bashrc` (or `~/.zshrc`) in the system default text editor.
+    fn open_claude_cli_config() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let bashrc_path = PathBuf::from(&home).join(".bashrc");
+
+        // Prefer .bashrc; fall back to .zshrc if it doesn't exist.
+        let config_path = if bashrc_path.exists() {
+            bashrc_path
+        } else {
+            PathBuf::from(&home).join(".zshrc")
+        };
+
+        let uri = format!("file://{}", config_path.display());
+        let _ = Command::new("xdg-open")
+            .arg(&uri)
+            .spawn();
     }
 }
