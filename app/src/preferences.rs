@@ -5,7 +5,7 @@ use gtk::prelude::*;
 use gtk::{FileChooserAction, Orientation, ResponseType, Window};
 
 use adw::prelude::*;
-use adw::{EntryRow, SwitchRow};
+use adw::{EntryRow, ExpanderRow, SwitchRow};
 
 use swai_core::config::Config;
 
@@ -275,13 +275,13 @@ impl PreferencesDialog {
         row
     }
 
-    // ─── Gateway Information Section (Phase 12.2) ───────────────────────────
+    // ─── Gateway Information Section (Phase 12.2 + Phase 17) ────────────────
 
     /// Add the Gateway information section at the bottom of the preferences dialog.
     ///
     /// Displays the proxy base URL with a copy button, auth key guidance, and
-    /// step-by-step instructions for connecting Claude Desktop via the
-    /// Third-Party Inference → Gateway mode.
+    /// three collapsible `AdwExpanderRow` accordions for client setup guides:
+    /// Claude Code CLI, Claude Desktop, and OpenAI Codex CLI.
     fn add_gateway_section(parent: &gtk::Box, config: &Config) {
         // Section header label.
         let header = gtk::Label::builder()
@@ -337,23 +337,316 @@ impl PreferencesDialog {
 
         parent.append(&auth_row);
 
-        // Setup instructions for Claude Desktop (Third-Party Inference → Gateway).
-        let instructions_label = gtk::Label::builder()
+        // ── Collapsible client setup guides (Phase 17) ──────────────────
+
+        let claude_cli_expander = Self::build_claude_cli_expander(config);
+        parent.append(&claude_cli_expander);
+
+        let claude_desktop_expander = Self::build_claude_desktop_expander(config);
+        parent.append(&claude_desktop_expander);
+
+        let codex_expander = Self::build_codex_expander(config);
+        parent.append(&codex_expander);
+    }
+
+    /// Build the Claude Code CLI setup guide expander row.
+    fn build_claude_cli_expander(config: &Config) -> ExpanderRow {
+        let port = config.proxy_port();
+        let base_url = format!("http://127.0.0.1:{port}/v1", port = port);
+
+        let expander = ExpanderRow::builder()
+            .title("Claude Code CLI Setup Guide")
+            .build();
+
+        let content = gtk::Box::new(Orientation::Vertical, 4);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+        content.set_margin_top(6);
+        content.set_margin_bottom(6);
+
+        // ANTHROPIC_BASE_URL row with copy button.
+        let env_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let env_label = gtk::Label::builder()
+            .label("ANTHROPIC_BASE_URL")
+            .halign(gtk::Align::Start)
+            .css_classes(vec!["dim-label"])
+            .build();
+        env_row.append(&env_label);
+
+        let env_value = gtk::Label::builder()
+            .label(&base_url)
+            .xalign(0.0)
+            .selectable(true)
+            .build();
+        env_row.append(&env_value);
+
+        let copy_env_btn = gtk::Button::builder()
+            .label("Copy")
+            .css_classes(vec!["flat"])
+            .build();
+        let base_url_clone = base_url.clone();
+        copy_env_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard(&base_url_clone);
+        });
+        env_row.append(&copy_env_btn);
+
+        content.append(&env_row);
+
+        // Instructions label.
+        let instructions = gtk::Label::builder()
             .label(
-                "To connect Claude Desktop:\n\
-                 1. Enable Developer Mode in Claude Desktop's Help menu.\n\
-                 2. Open Developer Menu → Configure Third-Party Inference → Gateway.\n\
-                 3. Set Gateway Base URL to http://127.0.0.1:9080/ and API Key to \"local\".\n\
-                 4. Under Models → Model list, click \"+ Add model\": set Model ID to \"claude\" and Display name to \"SWAI\". Toggle 1M-context ON.",
+                &format!(
+                    "Add the following to your shell profile (e.g. ~/.bashrc or ~/.zshrc):\n\n\
+                     export ANTHROPIC_BASE_URL={base_url}\n\n\
+                     Then reload: source ~/.bashrc (or ~/.zshrc).\n\n\
+                     After that, `claude` will route through SWAI's local proxy.",
+                    base_url = base_url,
+                ),
             )
             .use_markup(false)
             .wrap(true)
             .xalign(0.0)
-            .margin_start(6)
-            .margin_end(6)
             .margin_top(6)
             .build();
-        parent.append(&instructions_label);
+        content.append(&instructions);
+
+        // Copy export command button.
+        let export_cmd = format!("export ANTHROPIC_BASE_URL={base_url}", base_url = base_url);
+        let copy_export_btn = gtk::Button::builder()
+            .label("Copy export command")
+            .css_classes(vec!["flat", "suggested-action"])
+            .halign(gtk::Align::End)
+            .margin_top(6)
+            .build();
+        let export_cmd_clone = export_cmd.clone();
+        copy_export_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard(&export_cmd_clone);
+        });
+        content.append(&copy_export_btn);
+
+        expander.add_row(&content);
+        expander
+    }
+
+    /// Build the Claude Desktop setup guide expander row.
+    fn build_claude_desktop_expander(config: &Config) -> ExpanderRow {
+        let port = config.proxy_port();
+        let base_url = format!("http://127.0.0.1:{port}/v1", port = port);
+
+        let expander = ExpanderRow::builder()
+            .title("Claude Desktop Setup Guide")
+            .build();
+
+        let content = gtk::Box::new(Orientation::Vertical, 4);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+        content.set_margin_top(6);
+        content.set_margin_bottom(6);
+
+        // Gateway URL row.
+        let url_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let url_label = gtk::Label::builder()
+            .label("Gateway URL")
+            .halign(gtk::Align::Start)
+            .css_classes(vec!["dim-label"])
+            .build();
+        url_row.append(&url_label);
+
+        let url_value = gtk::Label::builder()
+            .label(&base_url)
+            .xalign(0.0)
+            .selectable(true)
+            .build();
+        url_row.append(&url_value);
+
+        let copy_url_btn = gtk::Button::builder()
+            .label("Copy")
+            .css_classes(vec!["flat"])
+            .build();
+        let base_url_clone = base_url.clone();
+        copy_url_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard(&base_url_clone);
+        });
+        url_row.append(&copy_url_btn);
+
+        content.append(&url_row);
+
+        // API Key row.
+        let key_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let key_label = gtk::Label::builder()
+            .label("API Key")
+            .halign(gtk::Align::Start)
+            .css_classes(vec!["dim-label"])
+            .build();
+        key_row.append(&key_label);
+
+        let key_value = gtk::Label::builder()
+            .label("swai-local")
+            .xalign(0.0)
+            .selectable(true)
+            .build();
+        key_row.append(&key_value);
+
+        let copy_key_btn = gtk::Button::builder()
+            .label("Copy")
+            .css_classes(vec!["flat"])
+            .build();
+        copy_key_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard("swai-local");
+        });
+        key_row.append(&copy_key_btn);
+
+        content.append(&key_row);
+
+        // Instructions label.
+        let instructions = gtk::Label::builder()
+            .label(
+                &format!(
+                    "To connect Claude Desktop:\n\
+                     1. Enable Developer Mode in Claude Desktop's Help menu.\n\
+                     2. Open Developer Menu → Configure Third-Party Inference → Gateway.\n\
+                     3. Set Gateway Base URL to http://127.0.0.1:{port}/ and API Key to \"swai-local\".\n\
+                     4. Under Models → Model list, click \"+ Add model\": set Model ID to \"claude\" and Display name to \"SWAI\". Toggle 1M-context ON.",
+                    port = port,
+                ),
+            )
+            .use_markup(false)
+            .wrap(true)
+            .xalign(0.0)
+            .margin_top(6)
+            .build();
+        content.append(&instructions);
+
+        expander.add_row(&content);
+        expander
+    }
+
+    /// Build the OpenAI Codex CLI setup guide expander row.
+    fn build_codex_expander(config: &Config) -> ExpanderRow {
+        let port = config.proxy_port();
+        let base_url = format!("http://127.0.0.1:{port}/v1", port = port);
+
+        let expander = ExpanderRow::builder()
+            .title("OpenAI Codex CLI Setup Guide")
+            .build();
+
+        let content = gtk::Box::new(Orientation::Vertical, 4);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+        content.set_margin_top(6);
+        content.set_margin_bottom(6);
+
+        // Config file path row.
+        let config_path_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let config_path_label = gtk::Label::builder()
+            .label("Config file")
+            .halign(gtk::Align::Start)
+            .css_classes(vec!["dim-label"])
+            .build();
+        config_path_row.append(&config_path_label);
+
+        let config_path_value = gtk::Label::builder()
+            .label("~/.codex/config.toml")
+            .xalign(0.0)
+            .selectable(true)
+            .build();
+        config_path_row.append(&config_path_value);
+
+        content.append(&config_path_row);
+
+        // Base URL row.
+        let url_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let url_label = gtk::Label::builder()
+            .label("Base URL")
+            .halign(gtk::Align::Start)
+            .css_classes(vec!["dim-label"])
+            .build();
+        url_row.append(&url_label);
+
+        let url_value = gtk::Label::builder()
+            .label(&base_url)
+            .xalign(0.0)
+            .selectable(true)
+            .build();
+        url_row.append(&url_value);
+
+        let copy_url_btn = gtk::Button::builder()
+            .label("Copy")
+            .css_classes(vec!["flat"])
+            .build();
+        let base_url_clone = base_url.clone();
+        copy_url_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard(&base_url_clone);
+        });
+        url_row.append(&copy_url_btn);
+
+        content.append(&url_row);
+
+        // API Key row.
+        let key_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let key_label = gtk::Label::builder()
+            .label("API Key")
+            .halign(gtk::Align::Start)
+            .css_classes(vec!["dim-label"])
+            .build();
+        key_row.append(&key_label);
+
+        let key_value = gtk::Label::builder()
+            .label("swai-local")
+            .xalign(0.0)
+            .selectable(true)
+            .build();
+        key_row.append(&key_value);
+
+        let copy_key_btn = gtk::Button::builder()
+            .label("Copy")
+            .css_classes(vec!["flat"])
+            .build();
+        copy_key_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard("swai-local");
+        });
+        key_row.append(&copy_key_btn);
+
+        content.append(&key_row);
+
+        // Instructions label.
+        let instructions = gtk::Label::builder()
+            .label(
+                &format!(
+                    "Add the following to `~/.codex/config.toml`:\n\n\
+                     [proxy]\n\
+                     base_url = \"{base_url}\"\n\
+                     api_key = \"swai-local\"\n\n\
+                     Restart Codex CLI after editing the config file.",
+                    base_url = base_url,
+                ),
+            )
+            .use_markup(false)
+            .wrap(true)
+            .xalign(0.0)
+            .margin_top(6)
+            .build();
+        content.append(&instructions);
+
+        // Copy config block button.
+        let config_block = format!(
+            "[proxy]\nbase_url = \"{base_url}\"\napi_key = \"swai-local\"",
+            base_url = base_url,
+        );
+        let copy_config_btn = gtk::Button::builder()
+            .label("Copy config block")
+            .css_classes(vec!["flat", "suggested-action"])
+            .halign(gtk::Align::End)
+            .margin_top(6)
+            .build();
+        let config_block_clone = config_block.clone();
+        copy_config_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard(&config_block_clone);
+        });
+        content.append(&copy_config_btn);
+
+        expander.add_row(&content);
+        expander
     }
 
     /// Copy text to the system clipboard using GDK.
