@@ -4,9 +4,6 @@ use gtk4 as gtk;
 use gtk::prelude::*;
 use gtk::{FileChooserAction, Orientation, ResponseType, Window};
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use adw::prelude::*;
 use adw::{EntryRow, ExpanderRow, SwitchRow};
 
@@ -369,38 +366,33 @@ impl PreferencesDialog {
 
     /// Wire accordion behavior: only one expander row may be expanded at a time.
     ///
-    /// Listens to each expander's `expanded` property and collapses siblings when
-    /// one opens. Uses an `Rc<RefCell<bool>>` guard to prevent recursive collapse
-    /// notifications from re-triggering the loop.
+    /// Uses `glib::idle_add` to defer sibling collapse until after the current
+    /// click/expansion completes, avoiding interference with GTK's internal
+    /// `ExpanderRow` click handling.
     fn wire_accordion_exclusion(
         container: &gtk::Box,
         expanders: &[ExpanderRow],
     ) {
-        let guard = Rc::new(RefCell::new(false));
-
         for expander in expanders {
-            // Clone the vec of references for the closure.
             let siblings: Vec<ExpanderRow> = expanders.to_vec();
-            let guard_clone = guard.clone();
 
             expander.connect_notify_local(Some("expanded"), move |widget, _param| {
-                let mut g = guard_clone.borrow_mut();
-                if *g {
-                    return;
-                }
                 let is_expanded: bool = widget.property("expanded");
                 if !is_expanded {
                     return;
                 }
 
-                // This expander just opened — collapse the others.
-                *g = true;
-                for sibling in &siblings {
-                    if !std::ptr::eq(sibling, widget) {
-                        sibling.set_expanded(false);
+                // Defer collapse to avoid interfering with GTK's internal click handling.
+                let siblings_clone = siblings.clone();
+                let widget_ptr = widget as *const ExpanderRow;
+                glib::idle_add_local(move || {
+                    for sibling in &siblings_clone {
+                        if (sibling as *const ExpanderRow) != widget_ptr {
+                            sibling.set_expanded(false);
+                        }
                     }
-                }
-                *g = false;
+                    glib::ControlFlow::Break
+                });
             });
         }
 
@@ -414,7 +406,7 @@ impl PreferencesDialog {
         let base_url = format!("http://127.0.0.1:{port}/v1", port = port);
 
         let expander = ExpanderRow::builder()
-            .title("Claude Code CLI Setup Guide")
+            .title("<span foreground=\"#DA7756\" weight=\"bold\">Claude Code CLI</span>")
             .build();
 
         let content = gtk::Box::new(Orientation::Vertical, 4);
@@ -493,7 +485,7 @@ impl PreferencesDialog {
         let base_url = format!("http://127.0.0.1:{port}/v1", port = port);
 
         let expander = ExpanderRow::builder()
-            .title("Claude Desktop Setup Guide")
+            .title("<span foreground=\"#DA7756\" weight=\"bold\">Claude Desktop</span>")
             .build();
 
         let content = gtk::Box::new(Orientation::Vertical, 4);
@@ -586,7 +578,7 @@ impl PreferencesDialog {
         let base_url = format!("http://127.0.0.1:{port}/v1", port = port);
 
         let expander = ExpanderRow::builder()
-            .title("OpenAI Codex CLI Setup Guide")
+            .title("<span foreground=\"#7297FF\" weight=\"bold\">OpenAI Codex CLI</span>")
             .build();
 
         let content = gtk::Box::new(Orientation::Vertical, 4);
