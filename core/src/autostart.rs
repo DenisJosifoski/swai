@@ -7,17 +7,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-
 const DESKTOP_FILENAME: &str = "swai.desktop";
-const DESKTOP_ENTRY: &str = "\
-[Desktop Entry]
-Type=Application
-Name=SWAI
-Comment=SWAI Local AI Gateway
-Exec=swai
-NoDisplay=true
-X-GNOME-Autostart-enabled=true
-";
 
 fn autostart_dir() -> PathBuf {
     let home = env::var("HOME").expect("HOME environment variable not set");
@@ -25,16 +15,32 @@ fn autostart_dir() -> PathBuf {
 }
 
 /// Write the XDG autostart `.desktop` file so SWAI launches on login.
-///
-/// Creates `~/.config/autostart/swai.desktop` if it does not already exist,
-/// overwriting any stale copy. Returns an error if the directory cannot be
-/// created or the file cannot be written.
 pub fn enable_autostart() -> io::Result<()> {
     let dir = autostart_dir();
     fs::create_dir_all(&dir)?;
 
+    let home = env::var("HOME").unwrap_or_default();
+    let exec_path = PathBuf::from(&home).join(".local").join("bin").join("swai");
+    let exec_cmd = if exec_path.exists() {
+        exec_path.to_string_lossy().to_string()
+    } else {
+        "swai".to_string()
+    };
+
+    let desktop_content = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=SWAI\n\
+         Comment=SWAI Local AI Gateway\n\
+         Exec={}\n\
+         Terminal=false\n\
+         Categories=Utility;Development;\n\
+         X-GNOME-Autostart-enabled=true\n",
+        exec_cmd
+    );
+
     let path = dir.join(DESKTOP_FILENAME);
-    fs::write(path, DESKTOP_ENTRY)?;
+    fs::write(path, desktop_content)?;
     Ok(())
 }
 

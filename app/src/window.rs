@@ -1926,6 +1926,7 @@ impl MainWindow {
         config.global.auto_follow_logs = Some(values.auto_follow_logs);
         config.preferences.enable_notifications = values.enable_notifications;
         config.preferences.notify_on_switch = values.notify_on_switch;
+        config.preferences.autostart_on_login = values.autostart_on_login;
 
         Config::validate(&config, config_path).map_err(|e| format!("Config validation error: {}", e))?;
 
@@ -1933,6 +1934,15 @@ impl MainWindow {
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
         std::fs::write(config_path, &content)
             .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+        // Sync autostart state with the filesystem (Phase 18).
+        if values.autostart_on_login {
+            swai_core::autostart::enable_autostart()
+                .map_err(|e| format!("Failed to enable autostart: {}", e))?;
+        } else {
+            swai_core::autostart::disable_autostart()
+                .map_err(|e| format!("Failed to disable autostart: {}", e))?;
+        }
 
         Ok(())
     }
