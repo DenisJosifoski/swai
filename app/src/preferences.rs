@@ -384,10 +384,10 @@ impl PreferencesDialog {
 
                 // Defer collapse to avoid interfering with GTK's internal click handling.
                 let siblings_clone = siblings.clone();
-                let widget_ptr = widget as *const ExpanderRow;
+                let widget_gptr = widget.as_ptr();
                 glib::idle_add_local(move || {
                     for sibling in &siblings_clone {
-                        if (sibling as *const ExpanderRow) != widget_ptr {
+                        if sibling.as_ptr() != widget_gptr {
                             sibling.set_expanded(false);
                         }
                     }
