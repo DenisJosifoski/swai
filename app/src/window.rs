@@ -399,6 +399,17 @@ impl MainWindow {
             if *close_requested_clone.borrow() {
                 return glib::Propagation::Stop;
             }
+
+            // Close any open child modal dialogs (like Preferences) so the quit/minimize dialog can present.
+            if let Some(app) = win.application() {
+                let win_ptr = win.upcast_ref::<gtk::Window>().as_ptr();
+                for w in app.windows() {
+                    if w.as_ptr() != win_ptr {
+                        w.destroy();
+                    }
+                }
+            }
+
             *close_requested_clone.borrow_mut() = true;
 
             let tray_available = tray_host_available;
@@ -440,6 +451,9 @@ impl MainWindow {
                             e.into_inner()
                         }).stop_all(true);
                         tracing::info!("user chose to quit from close dialog");
+                        for w in app_quit.windows() {
+                            w.destroy();
+                        }
                         app_quit.quit();
                     }
                     ResponseType::Apply => {
@@ -465,6 +479,9 @@ impl MainWindow {
                     tracing::error!("quit: process manager lock poisoned, continuing with shutdown");
                     e.into_inner()
                 }).stop_all(true);
+                for w in app_wa.windows() {
+                    w.destroy();
+                }
                 app_wa.quit();
             });
             Self::wire_actions(&widget, app, on_quit);
@@ -518,7 +535,7 @@ impl MainWindow {
         let cards_clone = Rc::clone(&cards);
         let pm_timeout = Arc::clone(&pm);
         let widget_timeout = widget.clone();
-        let app_timeout = app.clone();
+        let _app_timeout = app.clone();
         let quit_receiver = quit_receiver;
         let tray_receiver = tray_receiver;
         let import_receiver = import_receiver;
@@ -759,12 +776,10 @@ impl MainWindow {
 
             // ── Phase 7: Process tray quit signals. ────────────────────
             if quit_receiver.try_recv().is_ok() {
-                tracing::info!("quit signal received from tray");
-                let _ = pm_timeout.lock().unwrap_or_else(|e| {
-                    tracing::error!("tray quit: process manager lock poisoned, continuing with shutdown");
-                    e.into_inner()
-                }).stop_all(true);
-                app_timeout.quit();
+                tracing::info!("quit signal received from tray — prompting confirmation");
+                widget_timeout.show();
+                widget_timeout.present();
+                widget_timeout.close();
             }
 
             // ── Phase 8: Process import wizard messages. ───────────────

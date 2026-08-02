@@ -112,6 +112,12 @@ impl PreferencesDialog {
         widget.add_button("_Cancel", ResponseType::Cancel);
         widget.add_button("_Save", ResponseType::Ok);
 
+        let widget_clone = widget.clone();
+        widget.connect_close_request(move |_| {
+            widget_clone.response(ResponseType::Cancel);
+            glib::Propagation::Proceed
+        });
+
         Self {
             widget,
             log_dir_entry,
@@ -416,41 +422,94 @@ impl PreferencesDialog {
         content.set_margin_top(6);
         content.set_margin_bottom(6);
 
-        // ANTHROPIC_BASE_URL row with copy button.
-        let env_row = gtk::Box::new(Orientation::Horizontal, 6);
-        let env_label = gtk::Label::builder()
-            .label("ANTHROPIC_BASE_URL")
+        // Config file path row.
+        let config_path_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let config_path_label = gtk::Label::builder()
+            .label("Config file")
             .halign(gtk::Align::Start)
             .css_classes(vec!["dim-label"])
             .build();
-        env_row.append(&env_label);
+        config_path_row.append(&config_path_label);
 
-        let env_value = gtk::Label::builder()
+        let config_path_value = gtk::Label::builder()
+            .label("~/.bashrc (or ~/.zshrc)")
+            .xalign(0.0)
+            .selectable(true)
+            .build();
+        config_path_row.append(&config_path_value);
+
+        content.append(&config_path_row);
+
+        // Base URL row with copy button.
+        let url_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let url_label = gtk::Label::builder()
+            .label("Base URL")
+            .halign(gtk::Align::Start)
+            .css_classes(vec!["dim-label"])
+            .build();
+        url_row.append(&url_label);
+
+        let url_value = gtk::Label::builder()
             .label(&base_url)
             .xalign(0.0)
             .selectable(true)
             .build();
-        env_row.append(&env_value);
+        url_row.append(&url_value);
 
-        let copy_env_btn = gtk::Button::builder()
+        let copy_url_btn = gtk::Button::builder()
             .label("Copy")
             .css_classes(vec!["flat"])
             .build();
         let base_url_clone = base_url.clone();
-        copy_env_btn.connect_clicked(move |_| {
+        copy_url_btn.connect_clicked(move |_| {
             Self::copy_to_clipboard(&base_url_clone);
         });
-        env_row.append(&copy_env_btn);
+        url_row.append(&copy_url_btn);
 
-        content.append(&env_row);
+        content.append(&url_row);
 
-        // Instructions label (shows the bash function that gets copied).
+        // API Key row with copy button.
+        let key_row = gtk::Box::new(Orientation::Horizontal, 6);
+        let key_label = gtk::Label::builder()
+            .label("API Key")
+            .halign(gtk::Align::Start)
+            .css_classes(vec!["dim-label"])
+            .build();
+        key_row.append(&key_label);
+
+        let key_value = gtk::Label::builder()
+            .label("local")
+            .xalign(0.0)
+            .selectable(true)
+            .build();
+        key_row.append(&key_value);
+
+        let copy_key_btn = gtk::Button::builder()
+            .label("Copy")
+            .css_classes(vec!["flat"])
+            .build();
+        copy_key_btn.connect_clicked(move |_| {
+            Self::copy_to_clipboard("local");
+        });
+        key_row.append(&copy_key_btn);
+
+        content.append(&key_row);
+
+        // Explanatory header label.
+        let header_label = gtk::Label::builder()
+            .label("Add the following function to your shell profile (~/.bashrc or ~/.zshrc):")
+            .halign(gtk::Align::Start)
+            .margin_top(6)
+            .build();
+        content.append(&header_label);
+
+        // Monospace bash function display label.
         let func_display = format!(
             "claude-local() {{\n  export ANTHROPIC_BASE_URL=http://127.0.0.1:{port}/v1\n  \
              export ANTHROPIC_AUTH_TOKEN=local\n  export ANTHROPIC_API_KEY=\"\"\n  local live_model\n  \
              live_model=$(curl -s http://127.0.0.1:{port}/v1/models | grep -o '\"id\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4 | sed 's/^claude-//')\n  \
              export ANTHROPIC_MODEL=\"${{live_model:-unknown}}[1m]\"\n  \
-             export ANTHROPIC_SMALL_FAST_MODEL=\"$ANTHROPIC_MODEL\"\n  claude \"${{ @}}\"\n}}",
+             export ANTHROPIC_SMALL_FAST_MODEL=\"$ANTHROPIC_MODEL\"\n  claude \"${{@}}\"\n}}",
             port = port,
         );
         let instructions = gtk::Label::builder()
@@ -458,9 +517,19 @@ impl PreferencesDialog {
             .use_markup(false)
             .wrap(true)
             .xalign(0.0)
-            .margin_top(6)
+            .css_classes(vec!["monospace"])
+            .margin_top(4)
             .build();
         content.append(&instructions);
+
+        // Explanatory footer label.
+        let footer_label = gtk::Label::builder()
+            .label("Then reload with `source ~/.bashrc` (or `source ~/.zshrc`) and run `claude-local` in your terminal to start Claude Code.")
+            .halign(gtk::Align::Start)
+            .wrap(true)
+            .margin_top(6)
+            .build();
+        content.append(&footer_label);
 
         // Button row: "Copy Config Block" and "Open Config File".
         let btn_box = gtk::Box::new(Orientation::Horizontal, 6);
@@ -479,7 +548,7 @@ impl PreferencesDialog {
         });
         btn_box.append(&copy_func_btn);
 
-        // Open Config File button (opens home directory where .bashrc/.zshrc live).
+        // Open Config File button.
         let open_cfg_btn = gtk::Button::builder()
             .label("Open Config File")
             .css_classes(vec!["flat"])
