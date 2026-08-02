@@ -10,6 +10,7 @@ pub mod process_manager;
 pub mod proxy;
 pub mod reconciler;
 pub mod single_instance;
+pub mod autostart;
 
 use config::Config;
 use health_monitor::HealthMonitor;

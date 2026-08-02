@@ -89,6 +89,11 @@ pub struct PreferencesConfig {
     /// changes. When disabled, only start/stop/error events still fire.
     #[serde(default = "default_notify_on_switch")]
     pub notify_on_switch: bool,
+
+    /// When enabled, SWAI launches automatically on desktop session login
+    /// via an XDG autostart `.desktop` file.
+    #[serde(default = "default_autostart_on_login")]
+    pub autostart_on_login: bool,
 }
 
 impl Default for PreferencesConfig {
@@ -97,6 +102,7 @@ impl Default for PreferencesConfig {
             auto_follow_logs: true,
             enable_notifications: true,
             notify_on_switch: true,
+            autostart_on_login: false,
         }
     }
 }
@@ -111,6 +117,10 @@ fn default_enable_notifications() -> bool {
 
 fn default_notify_on_switch() -> bool {
     true
+}
+
+fn default_autostart_on_login() -> bool {
+    false
 }
 
 /// Global settings section.
@@ -267,6 +277,11 @@ impl Config {
     pub fn notify_on_switch(&self) -> bool {
         self.preferences.notify_on_switch
     }
+
+    /// Get the effective autostart-on-login preference.
+    pub fn autostart_on_login(&self) -> bool {
+        self.preferences.autostart_on_login
+    }
 }
 
 /// Returns an example config.toml for first-run reference.
@@ -408,6 +423,7 @@ mod tests {
                 auto_follow_logs: false,
                 enable_notifications: true,
                 notify_on_switch: true,
+                autostart_on_login: false,
             },
         };
 
@@ -459,6 +475,7 @@ auto_restart_on_context_full = true
                 auto_follow_logs: true,
                 enable_notifications: false,
                 notify_on_switch: false,
+                autostart_on_login: false,
             },
         };
 

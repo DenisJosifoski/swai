@@ -22,9 +22,11 @@ pub struct PreferencesDialog {
     auto_follow_switch: SwitchRow,
     enable_notifications_switch: SwitchRow,
     notify_on_switch_switch: SwitchRow,
+    autostart_switch: SwitchRow,
 }
 
 /// The values from the preferences form.
+#[allow(dead_code)]
 pub struct PreferencesValues {
     pub log_dir: Option<PathBuf>,
     pub proxy_port: Option<u16>,
@@ -32,6 +34,7 @@ pub struct PreferencesValues {
     pub auto_follow_logs: bool,
     pub enable_notifications: bool,
     pub notify_on_switch: bool,
+    pub autostart_on_login: bool,
 }
 
 impl PreferencesDialog {
@@ -51,6 +54,7 @@ impl PreferencesDialog {
         let auto_follow = self.auto_follow_switch.is_active();
         let enable_notifications = self.enable_notifications_switch.is_active();
         let notify_on_switch = self.notify_on_switch_switch.is_active();
+        let autostart = self.autostart_switch.is_active();
 
         PreferencesValues {
             log_dir,
@@ -59,6 +63,7 @@ impl PreferencesDialog {
             auto_follow_logs: auto_follow,
             enable_notifications,
             notify_on_switch,
+            autostart_on_login: autostart,
         }
     }
 
@@ -104,6 +109,19 @@ impl PreferencesDialog {
         // Notify on switch switch.
         let notify_on_switch_switch = Self::add_notify_on_switch_row(&content_box, config);
 
+        // System section header.
+        let system_header = gtk::Label::builder()
+            .label("<b>System</b>")
+            .use_markup(true)
+            .halign(gtk::Align::Start)
+            .margin_top(18)
+            .margin_bottom(6)
+            .build();
+        content_box.append(&system_header);
+
+        // Autostart on login switch.
+        let autostart_switch = Self::add_autostart_on_login_row(&content_box, config);
+
         // Gateway information section (Phase 12.2).
         Self::add_gateway_section(&content_box, config);
 
@@ -126,6 +144,7 @@ impl PreferencesDialog {
             auto_follow_switch,
             enable_notifications_switch,
             notify_on_switch_switch,
+            autostart_switch,
         }
     }
 
@@ -152,6 +171,7 @@ impl PreferencesDialog {
         let auto_follow = self.auto_follow_switch.is_active();
         let enable_notifications = self.enable_notifications_switch.is_active();
         let notify_on_switch = self.notify_on_switch_switch.is_active();
+        let autostart = self.autostart_switch.is_active();
 
         let mut config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
         config.global.log_dir = log_dir;
@@ -160,6 +180,7 @@ impl PreferencesDialog {
         config.global.auto_follow_logs = Some(auto_follow);
         config.preferences.enable_notifications = enable_notifications;
         config.preferences.notify_on_switch = notify_on_switch;
+        config.preferences.autostart_on_login = autostart;
 
         Config::validate(&config, config_path).map_err(|e| format!("Config validation error: {}", e))?;
 
@@ -167,6 +188,15 @@ impl PreferencesDialog {
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
         std::fs::write(config_path, &content)
             .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+        // Sync autostart state with the filesystem.
+        if autostart {
+            swai_core::autostart::enable_autostart()
+                .map_err(|e| format!("Failed to enable autostart: {}", e))?;
+        } else {
+            swai_core::autostart::disable_autostart()
+                .map_err(|e| format!("Failed to disable autostart: {}", e))?;
+        }
 
         Ok(())
     }
@@ -277,6 +307,18 @@ impl PreferencesDialog {
 
         let notify = config.notify_on_switch();
         row.set_active(notify);
+
+        parent.append(&row);
+        row
+    }
+
+    fn add_autostart_on_login_row(parent: &gtk::Box, config: &Config) -> SwitchRow {
+        let row = SwitchRow::builder()
+            .title("Start SWAI automatically on login")
+            .build();
+
+        let autostart = config.autostart_on_login();
+        row.set_active(autostart);
 
         parent.append(&row);
         row
