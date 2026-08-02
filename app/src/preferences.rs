@@ -4,6 +4,9 @@ use gtk4 as gtk;
 use gtk::prelude::*;
 use gtk::{FileChooserAction, Orientation, ResponseType, Window};
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use adw::prelude::*;
 use adw::{EntryRow, ExpanderRow, SwitchRow};
 
@@ -282,6 +285,8 @@ impl PreferencesDialog {
     /// Displays the proxy base URL with a copy button, auth key guidance, and
     /// three collapsible `AdwExpanderRow` accordions for client setup guides:
     /// Claude Code CLI, Claude Desktop, and OpenAI Codex CLI.
+    ///
+    /// The three expanders form an accordion: opening one collapses the others.
     fn add_gateway_section(parent: &gtk::Box, config: &Config) {
         // Section header label.
         let header = gtk::Label::builder()
@@ -338,15 +343,69 @@ impl PreferencesDialog {
         parent.append(&auth_row);
 
         // ── Collapsible client setup guides (Phase 17) ──────────────────
+        // Container for the accordion rows so we can wire mutual exclusion.
+        let accordion_box = gtk::Box::new(Orientation::Vertical, 0);
+        accordion_box.set_margin_start(0);
+        accordion_box.set_margin_end(0);
 
         let claude_cli_expander = Self::build_claude_cli_expander(config);
-        parent.append(&claude_cli_expander);
-
         let claude_desktop_expander = Self::build_claude_desktop_expander(config);
-        parent.append(&claude_desktop_expander);
-
         let codex_expander = Self::build_codex_expander(config);
-        parent.append(&codex_expander);
+
+        accordion_box.append(&claude_cli_expander);
+        accordion_box.append(&claude_desktop_expander);
+        accordion_box.append(&codex_expander);
+
+        // Wire accordion mutual exclusion: when one expands, collapse the others.
+        let expander_vec: Vec<ExpanderRow> = vec![
+            claude_cli_expander.clone(),
+            claude_desktop_expander.clone(),
+            codex_expander.clone(),
+        ];
+        Self::wire_accordion_exclusion(&accordion_box, &expander_vec);
+
+        parent.append(&accordion_box);
+    }
+
+    /// Wire accordion behavior: only one expander row may be expanded at a time.
+    ///
+    /// Listens to each expander's `expanded` property and collapses siblings when
+    /// one opens. Uses an `Rc<RefCell<bool>>` guard to prevent recursive collapse
+    /// notifications from re-triggering the loop.
+    fn wire_accordion_exclusion(
+        container: &gtk::Box,
+        expanders: &[ExpanderRow],
+    ) {
+        let guard = Rc::new(RefCell::new(false));
+
+        for expander in expanders {
+            // Clone the vec of references for the closure.
+            let siblings: Vec<ExpanderRow> = expanders.to_vec();
+            let guard_clone = guard.clone();
+
+            expander.connect_notify_local(Some("expanded"), move |widget, _param| {
+                let mut g = guard_clone.borrow_mut();
+                if *g {
+                    return;
+                }
+                let is_expanded: bool = widget.property("expanded");
+                if !is_expanded {
+                    return;
+                }
+
+                // This expander just opened — collapse the others.
+                *g = true;
+                for sibling in &siblings {
+                    if !std::ptr::eq(sibling, widget) {
+                        sibling.set_expanded(false);
+                    }
+                }
+                *g = false;
+            });
+        }
+
+        // Keep `container` alive alongside the closures.
+        container.connect_destroy(move |_| {});
     }
 
     /// Build the Claude Code CLI setup guide expander row.
