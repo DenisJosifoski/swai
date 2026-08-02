@@ -1,0 +1,26 @@
+[package]
+name = "swai"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "swai"
+path = "src/main.rs"
+
+[dependencies]
+swai-core = { path = "../core" }
+gtk4 = "0.9"
+glib = "0.20"
+gio = "0.20"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+reqwest = { version = "0.12", features = ["blocking"] }
+serde_json = "1"
+toml = "0.8"
+chrono = "0.4"
+ksni = { version = "0.3", features = ["blocking"] }
+adw = { package = "libadwaita", version = "0.7", features = ["v1_5", "v1_4", "v1_2"] }
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"

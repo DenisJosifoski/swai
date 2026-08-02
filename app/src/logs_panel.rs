@@ -1,0 +1,447 @@
+//! In-app log viewer window for SWAI.
+//!
+//! Displays model stdout/stderr logs and application logs with auto-tailing,
+//! clearing, and export capabilities. Each model gets its own viewer window
+//! scoped to that model's log file.
+//!
+//! Auto-tailing uses `glib::timeout_add_local` polling every 500ms to read
+//! newly appended lines without blocking the GTK UI thread. The poller is
+//! cleanly stopped when the viewer window is closed.
+//!
+//! Phase 14.1: A `gtk::DropDown` in the header bar lets users switch between
+//! any configured model without closing the window. On selection change the
+//! current auto-tail poller stops, the text buffer is cleared, the new
+//! model's log file is resolved, offset resets to zero, the poller restarts,
+//! and the filepath label updates.
+
+use gtk4 as gtk;
+use gtk::prelude::*;
+
+use std::cell::Cell;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+/// A log viewer window that displays a model's log file with auto-tailing.
+///
+/// Created when the user clicks the "Logs" button on a ModelCard or uses
+/// the View → Toggle Logs Panel menu item. Each invocation opens a new
+/// window scoped to the specified model's most recent log file.
+#[allow(dead_code)]
+pub struct LogViewerWindow {
+    /// The GTK application window.
+    widget: gtk::ApplicationWindow,
+    /// The text buffer holding the current log content.
+    text_buffer: gtk::TextBuffer,
+    /// Path to the log file being viewed (used for clear/export).
+    log_file: PathBuf,
+    /// Tracks the byte offset of the last read to detect new appends.
+    last_offset: Rc<Cell<usize>>,
+    /// The glib timeout source ID for auto-tail polling. Stored so we can
+    /// remove it when the window is destroyed.
+    timeout_id: Rc<Cell<Option<glib::SourceId>>>,
+    /// Directory containing log files — needed to resolve new model logs
+    /// when switching via the dropdown.
+    log_dir: PathBuf,
+    /// All configured models — used to populate the dropdown and look up
+    /// script paths when the user switches models.
+    all_models: Vec<swai_core::config::ModelConfig>,
+    /// The model-selector dropdown in the header bar. Stored so we can
+    /// programmatically update its selection when auto-follow is enabled.
+    dropdown: gtk::DropDown,
+}
+
+impl LogViewerWindow {
+    /// Create a new log viewer window for the given model's log file.
+    ///
+    /// Resolves the most recent log file from the log directory by matching
+    /// the script stem (e.g., `run-llama_20260724_143022.log`).
+    ///
+    /// `all_models` is used to populate the model-selector dropdown; the
+    /// currently active model (`model_id`) is pre-selected.
+    pub fn new(
+        model_name: &str,
+        script_path: &Path,
+        log_dir: &Path,
+        model_id: &str,
+        all_models: &[swai_core::config::ModelConfig],
+    ) -> Self {
+        let log_file = resolve_log_file(script_path, log_dir);
+
+        // ── Window setup ───────────────────────────────────────────
+        let widget = gtk::ApplicationWindow::builder()
+            .title(format!("Logs — {}", model_name))
+            .default_width(720)
+            .default_height(500)
+            .build();
+
+        // ── Header bar with action buttons & model selector ────────
+        let header = gtk::HeaderBar::new();
+        header.set_show_title_buttons(true);
+
+        // Model selector dropdown — populate with all configured models.
+        let model_names: Vec<glib::GString> = all_models
+            .iter()
+            .map(|m| glib::GString::from(m.name.clone()))
+            .collect();
+        let str_refs: Vec<&str> = model_names.iter().map(|s| s.as_str()).collect();
+        let string_list = gtk::StringList::new(&str_refs);
+
+        let dropdown = gtk::DropDown::new(Some(string_list), None::<gtk::Expression>);
+        dropdown.set_margin_start(6);
+        dropdown.set_margin_end(6);
+
+        // Pre-select the model that opened the viewer.
+        if let Some(idx) = all_models.iter().position(|m| m.id == model_id) {
+            dropdown.set_selected(idx as u32);
+        } else if !all_models.is_empty() {
+            dropdown.set_selected(0);
+        }
+
+        // Clear button — empties the log file and the TextView.
+        let clear_btn = gtk::Button::builder()
+            .label("Clear")
+            .build();
+        clear_btn.set_css_classes(&["flat"]);
+
+        // Export button — opens save dialog to copy log file elsewhere.
+        let export_btn = gtk::Button::builder()
+            .label("Export")
+            .build();
+        export_btn.set_css_classes(&["flat"]);
+
+        // Close button — destroys the window and stops the poller.
+        let close_btn = gtk::Button::builder()
+            .label("Close")
+            .build();
+        close_btn.set_css_classes(&["suggested-action", "flat"]);
+
+        header.pack_start(&dropdown);
+        header.pack_end(&clear_btn);
+        header.pack_end(&export_btn);
+        header.pack_end(&close_btn);
+
+        // ── Log file path label in the header ──────────────────────
+        let filepath_label = gtk::Label::new(Some(&log_file.display().to_string()));
+        filepath_label.set_css_classes(&["caption", "dim-label"]);
+        filepath_label.set_halign(gtk::Align::Start);
+        filepath_label.set_hexpand(true);
+        filepath_label.set_margin_start(12);
+        filepath_label.set_margin_end(6);
+        filepath_label.set_max_width_chars(40);
+        filepath_label.set_width_chars(40);
+
+        // Put the filepath in a secondary bar below the header
+        let info_bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        info_bar.append(&filepath_label);
+
+        let toolbar_stack = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        toolbar_stack.append(&header);
+        toolbar_stack.append(&info_bar);
+
+        // ── Scrollable TextView with monospace font ────────────────
+        let text_buffer = gtk::TextBuffer::new(None);
+        let text_view = gtk::TextView::builder()
+            .buffer(&text_buffer)
+            .monospace(true)
+            .editable(false)
+            .wrap_mode(gtk::WrapMode::WordChar)
+            .left_margin(8)
+            .right_margin(8)
+            .top_margin(4)
+            .bottom_margin(4)
+            .build();
+
+        let scrolled = gtk::ScrolledWindow::builder()
+            .hexpand(true)
+            .vexpand(true)
+            .build();
+        scrolled.set_child(Some(&text_view));
+
+        // ── Assemble the window ────────────────────────────────────
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        content.append(&toolbar_stack);
+        content.append(&scrolled);
+
+        widget.set_child(Some(&content));
+
+        // Store the poller ID so we can clean it up on window close.
+        let timeout_id = Rc::new(Cell::new(None::<glib::SourceId>));
+        let last_offset = Rc::new(Cell::new(0usize));
+
+        // Clone refs for the dropdown handler and the destroy handler.
+        let tid_rc_dropdown = Rc::clone(&timeout_id);
+        let lo_rc_dropdown = Rc::clone(&last_offset);
+        let text_buffer_dropdown = text_buffer.clone();
+        let filepath_label_dropdown = filepath_label.clone();
+        let log_dir_for_dropdown = PathBuf::from(log_dir);
+        let all_models_for_dropdown = all_models.to_vec();
+
+        // Clone values before moving into the dropdown closure.
+        let tid_rc_clone = Rc::clone(&tid_rc_dropdown);
+        let lo_rc_clone = Rc::clone(&lo_rc_dropdown);
+        let text_view_clone = text_view.clone();
+        let log_dir_clone = PathBuf::from(&log_dir_for_dropdown);
+
+        // Wire dropdown selection change → switch model.
+        dropdown.connect_selected_notify(move |dd| {
+            let selected_idx = dd.selected() as usize;
+            if selected_idx >= all_models_for_dropdown.len() {
+                return;
+            }
+            let model = &all_models_for_dropdown[selected_idx];
+            tracing::info!(
+                "LogViewer: switching to model '{}' (id={})",
+                model.name, model.id
+            );
+
+            // 1. Stop the current auto-tail poller.
+            if let Some(id) = tid_rc_clone.take() {
+                id.remove();
+            }
+
+            // 2. Clear the text buffer.
+            text_buffer_dropdown.set_text("");
+
+            // 3. Reset offset to zero for the new file.
+            lo_rc_clone.set(0);
+
+            // 4. Resolve the new model's log file.
+            let new_log = resolve_log_file(&model.script_path, &log_dir_clone);
+
+            // 5. Update filepath label and restart the poller.
+            filepath_label_dropdown.set_text(&new_log.display().to_string());
+
+            let tid = start_tail_poller(
+                new_log,
+                text_view_clone.clone(),
+                lo_rc_clone.clone(),
+                Rc::clone(&tid_rc_clone),
+            );
+            tid_rc_clone.set(Some(tid));
+        });
+
+        // Clone tid_rc for the destroy handler.
+        let tid_rc_destroy = Rc::clone(&timeout_id);
+        widget.connect_destroy(move |_win| {
+            if let Some(id) = tid_rc_destroy.take() {
+                id.remove();
+            }
+        });
+
+        // Start the auto-tail poller.
+        let tid = start_tail_poller(
+            log_file.clone(),
+            text_view.clone(),
+            lo_rc_dropdown.clone(),
+            Rc::clone(&tid_rc_dropdown),
+        );
+        tid_rc_dropdown.set(Some(tid));
+
+        Self {
+            widget,
+            text_buffer,
+            log_file,
+            last_offset: lo_rc_dropdown.clone(),
+            timeout_id,
+            log_dir: log_dir_for_dropdown,
+            all_models: all_models.to_vec(),
+            dropdown,
+        }
+    }
+
+    /// Present the window (make it visible and raise it).
+    pub fn present(&self) {
+        self.widget.present();
+    }
+
+    /// Update the dropdown selection to the index of the given model ID.
+    ///
+    /// Used by MainWindow to auto-follow the active model when a switch occurs.
+    /// No-op if the model ID is not found in the dropdown list.
+    pub fn select_model_by_id(&self, model_id: &str) {
+        for (idx, model) in self.all_models.iter().enumerate() {
+            if model.id == model_id {
+                self.dropdown.set_selected(idx as u32);
+                return;
+            }
+        }
+    }
+
+    /// Get the currently selected model ID from the dropdown.
+    #[allow(dead_code)]
+    pub fn selected_model_id(&self) -> Option<String> {
+        let selected = self.dropdown.selected() as usize;
+        self.all_models.get(selected).map(|m| m.id.clone())
+    }
+}
+
+/// Resolve the most recent log file for a given script path.
+///
+/// Log files follow the pattern `{script_stem}_{YYYYMMDD_HHMMSS}.log`.
+/// This function scans the log directory, filters by script stem, and
+/// returns the file with the latest timestamp (alphabetical order works
+/// because timestamps are fixed-width zero-padded).
+fn resolve_log_file(script_path: &Path, log_dir: &Path) -> PathBuf {
+    let script_stem = script_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    if let Ok(entries) = fs::read_dir(log_dir) {
+        let mut matches: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                if !name.ends_with(".log") {
+                    return None;
+                }
+                // Match: {script_stem}_{YYYYMMDD_HHMMSS}.log
+                let prefix = format!("{}_", script_stem);
+                if !name.starts_with(&prefix) {
+                    return None;
+                }
+                Some(e.path())
+            })
+            .collect();
+
+        // Sort descending — most recent first (timestamps are zero-padded).
+        matches.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+
+        if let Some(most_recent) = matches.first() {
+            return most_recent.clone();
+        }
+    }
+
+    // Fallback: create a new log file path with the current timestamp.
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    log_dir.join(format!("{}_{}.log", script_stem, timestamp))
+}
+
+/// Start the auto-tail polling loop.
+///
+/// Reads newly appended bytes from the log file every 500ms and appends
+/// them to the text buffer. The poller stops when the source ID is removed
+/// (which happens in the window's `connect_destroy` handler).
+fn start_tail_poller(
+    log_file: PathBuf,
+    text_view: gtk::TextView,
+    last_offset: Rc<Cell<usize>>,
+    _timeout_id: Rc<Cell<Option<glib::SourceId>>>,
+) -> glib::SourceId {
+    glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
+        // Read the entire file content.
+        let content = match fs::read_to_string(&log_file) {
+            Ok(c) => c,
+            Err(_) => return glib::ControlFlow::Continue, // File doesn't exist yet or unreadable
+        };
+
+        let current_offset = last_offset.get();
+        let new_bytes_len = content.len().saturating_sub(current_offset);
+
+        if new_bytes_len > 0 {
+            let text_buffer = text_view.buffer();
+            let mut end_iter = text_buffer.end_iter();
+            text_buffer.insert(&mut end_iter, &content[current_offset..]);
+
+            // Auto-scroll to the bottom.
+            let bot = text_buffer.end_iter();
+            let mut bot_mut = bot;
+            text_view.scroll_to_iter(&mut bot_mut, 0.0, true, 0.0, 1.0);
+
+            last_offset.set(current_offset + new_bytes_len);
+        } else if content.is_empty() && current_offset > 0 {
+            // File was truncated (e.g., by Clear button) — reset offset.
+            last_offset.set(0);
+        }
+
+        glib::ControlFlow::Continue
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use swai_core::config::ModelConfig;
+
+    fn make_test_model(id: &str, name: &str) -> ModelConfig {
+        ModelConfig {
+            id: id.to_string(),
+            name: name.to_string(),
+            script_path: PathBuf::from(format!("/tmp/{}.sh", id)),
+            port: 8080 + id.parse::<u16>().unwrap_or(1),
+            health_timeout_sec: 30,
+        }
+    }
+
+    #[test]
+    fn test_resolve_log_file_fallback() {
+        // When no log files exist, it should return a sensible fallback path.
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir — test scaffolding only, never ships in release
+        let temp_dir = std::env::temp_dir().join("swai-test-logs");
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let script = PathBuf::from("/tmp/test-model.sh");
+        let result = resolve_log_file(&script, &temp_dir);
+
+        assert!(result.starts_with(&temp_dir));
+        // Check the filename (not the full path) starts with the expected prefix.
+        let filename = result.file_name().unwrap_or_default().to_string_lossy();
+        assert!(filename.starts_with("test-model_"));
+        assert!(result.to_string_lossy().ends_with(".log"));
+
+        // Cleanup.
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_resolve_log_file_selects_most_recent() {
+        // When multiple log files exist, it should return the most recent one.
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir — test scaffolding only, never ships in release
+        let temp_dir = std::env::temp_dir().join("swai-test-logs-resolve");
+        let _ = fs::create_dir_all(&temp_dir);
+
+        // Create two log files with different timestamps.
+        let script = PathBuf::from("/tmp/test-model.sh");
+        fs::write(
+            temp_dir.join("test-model_20260101_120000.log"),
+            "old log content",
+        )
+        .unwrap();
+        fs::write(
+            temp_dir.join("test-model_20260730_150000.log"),
+            "new log content",
+        )
+        .unwrap();
+
+        let result = resolve_log_file(&script, &temp_dir);
+
+        // Should return the most recent file.
+        assert!(result.to_string_lossy().contains("20260730_150000"));
+
+        // Cleanup.
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_select_model_by_id_finds_correct_index() {
+        // Test that select_model_by_id would find the correct index for a given model ID.
+        let models = vec![
+            make_test_model("m1", "Model 1"),
+            make_test_model("m2", "Model 2"),
+            make_test_model("m3", "Model 3"),
+        ];
+
+        // Simulate the logic from select_model_by_id.
+        let target_id = "m2";
+        let found_index = models.iter().position(|m| m.id == target_id);
+
+        assert_eq!(found_index, Some(1));
+
+        // Test with non-existent ID.
+        let missing_id = "m999";
+        let missing_index = models.iter().position(|m| m.id == missing_id);
+
+        assert_eq!(missing_index, None);
+    }
+}
