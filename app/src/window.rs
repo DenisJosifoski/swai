@@ -2107,9 +2107,11 @@ impl MainWindow {
                                             Self::trigger_auto_restart(
                                                 &pm,
                                                 &sender,
+                                                &slot_sender,
                                                 &proxy_state,
                                                 model_id,
                                                 enable_notifications,
+                                                slot_info.n_ctx,
                                             );
                                         }
                                     }
@@ -2255,9 +2257,11 @@ impl MainWindow {
     fn trigger_auto_restart(
         pm: &Arc<Mutex<ProcessManager>>,
         sender: &std::sync::mpsc::Sender<ChannelMessage>,
+        slot_sender: &std::sync::mpsc::Sender<SlotUpdate>,
         proxy_state: &Option<Arc<Mutex<ProxyState>>>,
         model_id: &str,
         enable_notifications: bool,
+        n_ctx: usize,
     ) {
         static LAST_RESTART: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -2272,6 +2276,15 @@ impl MainWindow {
             return;
         }
         LAST_RESTART.store(now_sec, Ordering::Relaxed);
+
+        // Immediately reset the UI progress bar tokens to 0 so stale 98% metrics don't re-trigger.
+        let _ = slot_sender.send(SlotUpdate {
+            model_id: model_id.to_string(),
+            tokens_used: 0,
+            n_ctx,
+            predicted_per_second: 0.0,
+            prompt_per_second: 0.0,
+        });
 
         let bg_model_id = model_id.to_string();
         let bg_pm = Arc::clone(pm);
