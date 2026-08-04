@@ -2291,8 +2291,8 @@ impl MainWindow {
                 };
 
                 if pm_lock.get_running_model_id() == Some(bg_model_id.as_str()) {
-                    let _ = pm_lock.stop_model(&bg_model_id, false);
-                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = pm_lock.stop_model(&bg_model_id, true);
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
                 }
 
                 pm_lock.start_model(&bg_model_id)
