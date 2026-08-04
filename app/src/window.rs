@@ -2259,6 +2259,20 @@ impl MainWindow {
         model_id: &str,
         enable_notifications: bool,
     ) {
+        static LAST_RESTART: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+        let now_sec = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let last_sec = LAST_RESTART.load(Ordering::Relaxed);
+        if now_sec > 0 && last_sec > 0 && now_sec < last_sec + 15 {
+            tracing::info!("auto-restart for '{}' suppressed by 15s cooldown guard", model_id);
+            return;
+        }
+        LAST_RESTART.store(now_sec, Ordering::Relaxed);
+
         let bg_model_id = model_id.to_string();
         let bg_pm = Arc::clone(pm);
         let bg_sender = sender.clone();
