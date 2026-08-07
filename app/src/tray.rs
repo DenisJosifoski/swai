@@ -134,8 +134,13 @@ impl Tray for SwaiTray {
 
     /// Icon name from the freedesktop icon theme.
     fn icon_name(&self) -> String {
+        "swai".to_string()
+    }
+
+    /// Icon theme search path so DBus tray daemons find the custom icon.
+    fn icon_theme_path(&self) -> String {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-        format!("{}/.local/share/icons/hicolor/512x512/apps/swai.png", home)
+        format!("{}/.local/share/icons/hicolor/512x512/apps", home)
     }
 
     /// Tooltip shown on hover.
