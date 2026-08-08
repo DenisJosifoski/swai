@@ -3,7 +3,7 @@
 //! Defines a `ProcessGuard` trait with a Linux implementation, and provides
 //! high-level operations: start, stop, switch, and zombie-port handling.
 
-use nix::sys::signal::{SIGKILL, SIGTERM};
+use nix::sys::signal::{SIGINT, SIGKILL};
 use nix::unistd::getpgid;
 pub use nix::unistd::Pid;
 use std::net::TcpStream;
@@ -328,8 +328,9 @@ impl LinuxProcessGuard {
             Ok(())
         };
 
-        // Step a: Send SIGTERM to the process group.
-        signal_target(pgid, SIGTERM)?;
+        // Step a: Send SIGINT to the process group (llama.cpp natively catches
+        // Ctrl+C → immediately unmapping CUDA/ROCm VRAM buffers ~100ms).
+        signal_target(pgid, SIGINT)?;
 
         // Step b: Wait/poll until the process exits or shutdown timeout expires.
         // During fast shutdown (app close), escalate to SIGKILL after 500ms to
