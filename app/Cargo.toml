@@ -22,6 +22,7 @@ chrono = "0.4"
 ksni = { version = "0.3", features = ["blocking"] }
 adw = { package = "libadwaita", version = "0.7", features = ["v1_5", "v1_4", "v1_2"] }
 regex = "1"
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"

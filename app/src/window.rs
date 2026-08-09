@@ -332,6 +332,12 @@ impl MainWindow {
             main_vbox.insert_before(banner, Some(&cards_scroll));
         }
 
+        // Phase 20: Check for SWAI updates in the background. If a newer
+        // version is available, show an `adw::Banner` at the top of the
+        // content area with a "Download & Install" action button.
+        let current_version = env!("CARGO_PKG_VERSION").to_string();
+        Self::check_for_update_background("DenisJosifoski/swai", &current_version);
+
         let current_keep_alive = Rc::new(RefCell::new(None::<Arc<AtomicBool>>));
 
        // Reconcile: detect any models already running from a previous session.
@@ -1999,9 +2005,12 @@ impl MainWindow {
 
     /// Show the About dialog using AdwAboutDialog.
     fn show_about_dialog(parent: &adw::ApplicationWindow) {
-        let dialog = AboutDialog::builder()
+        let version = env!("CARGO_PKG_VERSION");
+
+        // Create the AdwAboutDialog.
+        let about_dialog = AboutDialog::builder()
             .application_name("SWAI")
-            .version("0.1.0")
+            .version(version)
             .comments(
                 "Native Linux desktop app for starting, stopping, and \
                  monitoring local llama.cpp model servers.",
@@ -2011,8 +2020,152 @@ impl MainWindow {
             .developers(vec!["SWAI contributors"])
             .build();
 
-        dialog.add_link("GitHub", "https://github.com/DenisJosifoski/swai");
-        dialog.present(Some(parent));
+        about_dialog.add_link("GitHub", "https://github.com/DenisJosifoski/swai");
+
+        // Phase 20: Show a separate "Check for Updates" dialog instead of
+        // embedding a button in the About dialog (AdwAboutDialog doesn't
+        // support custom action widgets).
+        let parent_about = parent.clone();
+        let parent_for_response = parent_about.clone();
+        let check_btn = gtk::Button::builder()
+            .label("Check for Updates…")
+            .css_classes(vec!["suggested-action"])
+            .margin_top(12)
+            .build();
+
+        let check_dialog = gtk::Dialog::builder()
+            .title("SWAI — Check for Updates")
+            .transient_for(&parent_about)
+            .modal(true)
+            .build();
+
+        let check_content = gtk::Box::new(Orientation::Vertical, 12);
+        check_content.set_margin_start(24);
+        check_content.set_margin_end(24);
+        check_content.set_margin_top(24);
+        check_content.set_margin_bottom(24);
+
+        let info_label = gtk::Label::builder()
+            .label(&format!(
+                "You are currently running SWAI v{}.\n\n\
+                 Click the button below to check for updates.",
+                version,
+            ))
+            .wrap(true)
+            .halign(gtk::Align::Start)
+            .build();
+        check_content.append(&info_label);
+
+        check_content.append(&check_btn);
+
+        check_dialog.content_area().append(&check_content);
+        check_dialog.add_button("_Cancel", ResponseType::Cancel);
+
+        check_btn.connect_clicked(move |btn| {
+            btn.set_sensitive(false);
+            btn.set_label("Checking…");
+
+            // Clone parent_for_response for the inner closure.
+            let parent_resp = parent_for_response.clone();
+
+            // Perform update check synchronously (quick HTTP request).
+            let result = crate::update_checker::check_for_updates_blocking(
+                "DenisJosifoski/swai",
+                version,
+            );
+
+            match result {
+                crate::update_checker::UpdateCheckResult::UpdateAvailable { version, .. } => {
+                    let dlg = gtk::MessageDialog::new(
+                        Some(&parent_about),
+                        gtk::DialogFlags::MODAL,
+                        gtk::MessageType::Info,
+                        gtk::ButtonsType::None,
+                        &format!(
+                            "SWAI v{} is available!\n\n\
+                             Would you like to download and install it?",
+                            version,
+                        ),
+                    );
+                    dlg.set_title(Some("SWAI — Update Available"));
+                    dlg.add_button("_Later", ResponseType::Cancel);
+                    dlg.add_button("_Download & Install", ResponseType::Ok);
+
+                    dlg.connect_response(move |d, response| {
+                        if response == ResponseType::Ok {
+                            let install_result =
+                                crate::update_installer::install_update(
+                                    "DenisJosifoski/swai",
+                                    &version,
+                                );
+                            match install_result {
+                                crate::update_installer::UpdateInstallResult::Success {
+                                    new_version,
+                                } => {
+                                    let notif = gtk::MessageDialog::new(
+                                        Some(&parent_resp),
+                                        gtk::DialogFlags::MODAL,
+                                        gtk::MessageType::Info,
+                                        gtk::ButtonsType::Close,
+                                        &format!(
+                                            "SWAI updated to v{}!\n\n\
+                                             Restart the app to apply.",
+                                            new_version,
+                                        ),
+                                    );
+                                    notif.set_title(Some("SWAI — Update Complete"));
+                                    notif.present();
+                                }
+                                crate::update_installer::UpdateInstallResult::Error(e) => {
+                                    let err = gtk::MessageDialog::new(
+                                        Some(&parent_resp),
+                                        gtk::DialogFlags::MODAL,
+                                        gtk::MessageType::Error,
+                                        gtk::ButtonsType::Close,
+                                        &format!("Update failed:\n\n{}", e),
+                                    );
+                                    err.set_title(Some("SWAI — Update Error"));
+                                    err.present();
+                                }
+                            }
+                        }
+                        d.destroy();
+                    });
+                    dlg.present();
+                }
+                crate::update_checker::UpdateCheckResult::NoUpdate => {
+                    let dlg = gtk::MessageDialog::new(
+                        Some(&parent_about),
+                        gtk::DialogFlags::MODAL,
+                        gtk::MessageType::Info,
+                        gtk::ButtonsType::Close,
+                        "You are running the latest version of SWAI.",
+                    );
+                    dlg.set_title(Some("SWAI — Up to Date"));
+                    dlg.present();
+                }
+                crate::update_checker::UpdateCheckResult::Error(e) => {
+                    let dlg = gtk::MessageDialog::new(
+                        Some(&parent_about),
+                        gtk::DialogFlags::MODAL,
+                        gtk::MessageType::Error,
+                        gtk::ButtonsType::Close,
+                        &format!("Failed to check for updates:\n\n{}", e),
+                    );
+                    dlg.set_title(Some("SWAI — Update Check Failed"));
+                    dlg.present();
+                }
+            }
+
+            btn.set_sensitive(true);
+            btn.set_label("Check for Updates…");
+        });
+
+        // Show the check dialog transient to the about dialog.
+        check_dialog.present();
+
+        // Present the about dialog.
+        about_dialog.present(Some(parent));
     }
 
     /// Spawn the context polling thread.
@@ -2406,6 +2559,38 @@ impl MainWindow {
                 state,
             });
         }
+    }
+
+    // ─── Phase 20: Background Update Checker ────────────────────────────
+
+    /// Check for SWAI updates in the background. If a newer version is available,
+    /// log it. The UI notification is handled by the manual check buttons.
+    fn check_for_update_background(
+        github_repo: &str,
+        current_version: &str,
+    ) {
+        // Run the update check on a background thread to avoid blocking the UI.
+        let bg_github_repo = github_repo.to_string();
+        let bg_current_version = current_version.to_string();
+
+        std::thread::spawn(move || {
+            let result = crate::update_checker::check_for_updates_blocking(
+                &bg_github_repo,
+                &bg_current_version,
+            );
+
+            match result {
+                crate::update_checker::UpdateCheckResult::UpdateAvailable { version, .. } => {
+                    tracing::info!("Background update check: update available v{}", version);
+                }
+                crate::update_checker::UpdateCheckResult::NoUpdate => {
+                    tracing::debug!("Background update check: no update available");
+                }
+                crate::update_checker::UpdateCheckResult::Error(e) => {
+                    tracing::warn!("Background update check failed: {}", e);
+                }
+            }
+        });
     }
 }
 

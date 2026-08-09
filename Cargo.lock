@@ -2009,6 +2009,7 @@ dependencies = [
  "libadwaita",
  "regex",
  "reqwest",
+ "serde",
  "serde_json",
  "swai-core",
  "tempfile",

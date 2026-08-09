@@ -122,6 +122,112 @@ impl PreferencesDialog {
         // Autostart on login switch.
         let autostart_switch = Self::add_autostart_on_login_row(&content_box, config);
 
+        // Phase 20: "Check for Updates" button.
+        let check_update_btn = gtk::Button::builder()
+            .label("Check for Updates…")
+            .css_classes(vec!["suggested-action"])
+            .halign(gtk::Align::End)
+            .margin_top(12)
+            .build();
+
+        check_update_btn.connect_clicked(move |btn| {
+            btn.set_sensitive(false);
+            btn.set_label("Checking…");
+
+            // Perform update check synchronously (quick HTTP request).
+            let result = crate::update_checker::check_for_updates_blocking(
+                "DenisJosifoski/swai",
+                env!("CARGO_PKG_VERSION"),
+            );
+
+            match result {
+                crate::update_checker::UpdateCheckResult::UpdateAvailable { version, .. } => {
+                    let dlg = gtk::MessageDialog::new(
+                        None::<&gtk::Window>,
+                        gtk::DialogFlags::MODAL,
+                        gtk::MessageType::Info,
+                        gtk::ButtonsType::None,
+                        &format!(
+                            "SWAI v{} is available!\n\n\
+                             Would you like to download and install it?",
+                            version,
+                        ),
+                    );
+                    dlg.set_title(Some("SWAI — Update Available"));
+                    dlg.add_button("_Later", ResponseType::Cancel);
+                    dlg.add_button("_Download & Install", ResponseType::Ok);
+
+                    dlg.connect_response(move |d, response| {
+                        if response == ResponseType::Ok {
+                            let install_result =
+                                crate::update_installer::install_update(
+                                    "DenisJosifoski/swai",
+                                    &version,
+                                );
+                            match install_result {
+                                crate::update_installer::UpdateInstallResult::Success {
+                                    new_version,
+                                } => {
+                                    let notif = gtk::MessageDialog::new(
+                                        None::<&gtk::Window>,
+                                        gtk::DialogFlags::MODAL,
+                                        gtk::MessageType::Info,
+                                        gtk::ButtonsType::Close,
+                                        &format!(
+                                            "SWAI updated to v{}!\n\n\
+                                             Restart the app to apply.",
+                                            new_version,
+                                        ),
+                                    );
+                                    notif.set_title(Some("SWAI — Update Complete"));
+                                    notif.present();
+                                }
+                                crate::update_installer::UpdateInstallResult::Error(e) => {
+                                    let err = gtk::MessageDialog::new(
+                                        None::<&gtk::Window>,
+                                        gtk::DialogFlags::MODAL,
+                                        gtk::MessageType::Error,
+                                        gtk::ButtonsType::Close,
+                                        &format!("Update failed:\n\n{}", e),
+                                    );
+                                    err.set_title(Some("SWAI — Update Error"));
+                                    err.present();
+                                }
+                            }
+                        }
+                        d.destroy();
+                    });
+                    dlg.present();
+                }
+                crate::update_checker::UpdateCheckResult::NoUpdate => {
+                    let dlg = gtk::MessageDialog::new(
+                        None::<&gtk::Window>,
+                        gtk::DialogFlags::MODAL,
+                        gtk::MessageType::Info,
+                        gtk::ButtonsType::Close,
+                        "You are running the latest version of SWAI.",
+                    );
+                    dlg.set_title(Some("SWAI — Up to Date"));
+                    dlg.present();
+                }
+                crate::update_checker::UpdateCheckResult::Error(e) => {
+                    let dlg = gtk::MessageDialog::new(
+                        None::<&gtk::Window>,
+                        gtk::DialogFlags::MODAL,
+                        gtk::MessageType::Error,
+                        gtk::ButtonsType::Close,
+                        &format!("Failed to check for updates:\n\n{}", e),
+                    );
+                    dlg.set_title(Some("SWAI — Update Check Failed"));
+                    dlg.present();
+                }
+            }
+
+            btn.set_sensitive(true);
+            btn.set_label("Check for Updates…");
+        });
+        content_box.append(&check_update_btn);
+
         // Gateway information section (Phase 12.2).
         Self::add_gateway_section(&content_box, config);
 

@@ -12,6 +12,8 @@ mod menu;
 mod model_card;
 mod preferences;
 mod tray;
+mod update_checker;
+mod update_installer;
 mod window;
 
 fn try_handle_cli_args() -> Option<glib::ExitCode> {
