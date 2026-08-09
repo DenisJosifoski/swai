@@ -22,6 +22,7 @@ pub struct Version {
 
 impl Version {
     /// Create a new version from components.
+    #[allow(dead_code)]
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
         Self { major, minor, patch }
     }
@@ -86,7 +87,9 @@ pub enum UpdateCheckResult {
     /// An update is available with details.
     UpdateAvailable {
         version: String,
+        #[allow(dead_code)]
         release_url: String,
+        #[allow(dead_code)]
         changelog: Option<String>,
     },
     /// The check failed (network error, etc.).
@@ -114,6 +117,7 @@ pub fn check_for_updates_blocking(
     current_version: &str,
 ) -> UpdateCheckResult {
     let client = Client::builder()
+        .user_agent("SWAI/1.0 (Linux; GTK4)")
         .timeout(std::time::Duration::from_secs(10))
         .build();
 
@@ -133,6 +137,11 @@ pub fn check_for_updates_blocking(
             return UpdateCheckResult::Error(format!("Failed to fetch releases: {}", e));
         }
     };
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        // Repository has no published releases yet — running current version.
+        return UpdateCheckResult::NoUpdate;
+    }
 
     if !response.status().is_success() {
         let status = response.status();
@@ -207,6 +216,7 @@ pub fn check_for_updates_blocking(
 // ─── URL Opener ───────────────────────────────────────────────────────────
 
 /// Open a URL in the system default browser.
+#[allow(dead_code)]
 pub fn open_url(url: &str) {
     let _ = Command::new("xdg-open").arg(url).spawn();
 }
@@ -214,6 +224,7 @@ pub fn open_url(url: &str) {
 // ─── Download URL Builder ─────────────────────────────────────────────────
 
 /// Get the download URL for the current platform's update.
+#[allow(dead_code)]
 pub fn get_download_url(github_repo: &str, version: &str) -> String {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;

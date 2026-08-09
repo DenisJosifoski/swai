@@ -130,6 +130,7 @@ impl PreferencesDialog {
             .margin_top(12)
             .build();
 
+        let parent_win = widget.clone();
         check_update_btn.connect_clicked(move |btn| {
             btn.set_sensitive(false);
             btn.set_label("Checking…");
@@ -143,7 +144,7 @@ impl PreferencesDialog {
             match result {
                 crate::update_checker::UpdateCheckResult::UpdateAvailable { version, .. } => {
                     let dlg = gtk::MessageDialog::new(
-                        None::<&gtk::Window>,
+                        Some(&parent_win),
                         gtk::DialogFlags::MODAL,
                         gtk::MessageType::Info,
                         gtk::ButtonsType::None,
@@ -153,10 +154,11 @@ impl PreferencesDialog {
                             version,
                         ),
                     );
-                    dlg.set_title(Some("SWAI — Update Available"));
+                    dlg.set_title(Some("SWAI - Update Available"));
                     dlg.add_button("_Later", ResponseType::Cancel);
                     dlg.add_button("_Download & Install", ResponseType::Ok);
 
+                    let dialog_parent = parent_win.clone();
                     dlg.connect_response(move |d, response| {
                         if response == ResponseType::Ok {
                             let install_result =
@@ -169,7 +171,7 @@ impl PreferencesDialog {
                                     new_version,
                                 } => {
                                     let notif = gtk::MessageDialog::new(
-                                        None::<&gtk::Window>,
+                                        Some(&dialog_parent),
                                         gtk::DialogFlags::MODAL,
                                         gtk::MessageType::Info,
                                         gtk::ButtonsType::Close,
@@ -179,18 +181,20 @@ impl PreferencesDialog {
                                             new_version,
                                         ),
                                     );
-                                    notif.set_title(Some("SWAI — Update Complete"));
+                                    notif.set_title(Some("SWAI - Update Complete"));
+                                    notif.connect_response(|n, _| n.destroy());
                                     notif.present();
                                 }
                                 crate::update_installer::UpdateInstallResult::Error(e) => {
                                     let err = gtk::MessageDialog::new(
-                                        None::<&gtk::Window>,
+                                        Some(&dialog_parent),
                                         gtk::DialogFlags::MODAL,
                                         gtk::MessageType::Error,
                                         gtk::ButtonsType::Close,
                                         &format!("Update failed:\n\n{}", e),
                                     );
-                                    err.set_title(Some("SWAI — Update Error"));
+                                    err.set_title(Some("SWAI - Update Error"));
+                                    err.connect_response(|e_dlg, _| e_dlg.destroy());
                                     err.present();
                                 }
                             }
@@ -201,24 +205,26 @@ impl PreferencesDialog {
                 }
                 crate::update_checker::UpdateCheckResult::NoUpdate => {
                     let dlg = gtk::MessageDialog::new(
-                        None::<&gtk::Window>,
+                        Some(&parent_win),
                         gtk::DialogFlags::MODAL,
                         gtk::MessageType::Info,
                         gtk::ButtonsType::Close,
                         "You are running the latest version of SWAI.",
                     );
-                    dlg.set_title(Some("SWAI — Up to Date"));
+                    dlg.set_title(Some("SWAI - Up to Date"));
+                    dlg.connect_response(|d, _| d.destroy());
                     dlg.present();
                 }
                 crate::update_checker::UpdateCheckResult::Error(e) => {
                     let dlg = gtk::MessageDialog::new(
-                        None::<&gtk::Window>,
+                        Some(&parent_win),
                         gtk::DialogFlags::MODAL,
                         gtk::MessageType::Error,
                         gtk::ButtonsType::Close,
                         &format!("Failed to check for updates:\n\n{}", e),
                     );
-                    dlg.set_title(Some("SWAI — Update Check Failed"));
+                    dlg.set_title(Some("SWAI - Update Check Failed"));
+                    dlg.connect_response(|d, _| d.destroy());
                     dlg.present();
                 }
             }

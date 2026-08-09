@@ -49,9 +49,9 @@ enum ChannelMessage {
 pub enum ImportMessage {
     /// A new model was imported and its card should be appended.
     ModelImported { model: swai_core::config::ModelConfig },
-    /// A model's details (name, port) were updated — refresh the card label live.
+    /// A model's details (name, port) were updated - refresh the card label live.
     ModelNameUpdated { id: String, name: String, port: u16 },
-    /// A model was deleted — remove its card from the UI.
+    /// A model was deleted - remove its card from the UI.
     ModelDeleted { id: String },
 }
 
@@ -80,11 +80,11 @@ pub struct MainWindow {
     cards: Rc<RefCell<Vec<ModelCard>>>,
     /// Tracks the keep-alive signal for the active background thread.
     current_keep_alive: Rc<RefCell<Option<Arc<AtomicBool>>>>,
-    /// Shared config — needed by the context polling thread and preferences.
+    /// Shared config - needed by the context polling thread and preferences.
     config: Config,
     /// Path to the config file on disk (for saving preferences).
     config_path: std::path::PathBuf,
-    /// Proxy state — updated when a model starts/stops so the reverse proxy
+    /// Proxy state - updated when a model starts/stops so the reverse proxy
     /// knows where to forward incoming requests.
     proxy_state: Option<Arc<Mutex<ProxyState>>>,
     /// The currently open log viewer window (if any).
@@ -425,7 +425,7 @@ impl MainWindow {
             } else {
                 (
                     "Quit SWAI entirely?\n\n\
-                     Minimize to tray isn't available — no system tray was \
+                     Minimize to tray isn't available - no system tray was \
                      detected on this desktop.",
                     false,
                 )
@@ -589,8 +589,8 @@ impl MainWindow {
                                         )));
                                         if config_for_timeout.enable_notifications() {
                                             Self::notify(
-                                                "SWAI — Model Error",
-                                                "Failed to start model — process exited with error",
+                                                "SWAI - Model Error",
+                                                "Failed to start model - process exited with error",
                                             );
                                         }
                                     }
@@ -782,7 +782,7 @@ impl MainWindow {
 
             // ── Phase 7: Process tray quit signals. ────────────────────
             if quit_receiver.try_recv().is_ok() {
-                tracing::info!("quit signal received from tray — prompting confirmation");
+                tracing::info!("quit signal received from tray - prompting confirmation");
                 widget_timeout.show();
                 widget_timeout.present();
                 widget_timeout.close();
@@ -846,7 +846,7 @@ impl MainWindow {
                                     let pm_thread = Arc::clone(&pm_ref);
                                     let sender_thread = sender_inner.clone();
                                     let ka_thread = Arc::clone(&new_ka);
-                                    // Clone for health monitor — must be done inside closure body,
+                                    // Clone for health monitor - must be done inside closure body,
                                     // not at capture time, because Fn closures can't move captured values.
                                     let sender_health_for_thread = sender_health_import.clone();
 
@@ -1460,7 +1460,7 @@ impl MainWindow {
             instance.widget.add_action(&toggle_action);
         }
 
-        // Wire the refresh action — triggers instant health check & port
+        // Wire the refresh action - triggers instant health check & port
         // reconciliation across all models.
         {
             let pm_refresh = Arc::clone(&pm_refresh);
@@ -1590,7 +1590,7 @@ impl MainWindow {
                                     gtk::ButtonsType::Close,
                                     format!("Failed to save model:\n\n{}", e),
                                 );
-                                error_dialog.set_title(Some("SWAI — Save Error"));
+                                error_dialog.set_title(Some("SWAI - Save Error"));
                                 error_dialog.connect_response(|ed, _| ed.destroy());
                                 error_dialog.present();
                             }
@@ -1604,7 +1604,7 @@ impl MainWindow {
                             gtk::ButtonsType::Close,
                             format!("Validation error:\n\n{}", e),
                         );
-                        error_dialog.set_title(Some("SWAI — Import Error"));
+                        error_dialog.set_title(Some("SWAI - Import Error"));
                         error_dialog.connect_response(|ed, _| ed.destroy());
                         error_dialog.present();
                     }
@@ -1766,7 +1766,7 @@ impl MainWindow {
                     gtk::ButtonsType::Close,
                     format!("Failed to load config:\n\n{}", e),
                 );
-                dialog.set_title(Some("SWAI — Config Error"));
+                dialog.set_title(Some("SWAI - Config Error"));
                 dialog.connect_response(|d, _| d.destroy());
                 dialog.present();
                 return;
@@ -1796,7 +1796,7 @@ impl MainWindow {
                             gtk::ButtonsType::Close,
                             &e,
                         );
-                        error_dialog.set_title(Some("SWAI — Save Error"));
+                        error_dialog.set_title(Some("SWAI - Save Error"));
                         error_dialog.connect_response(|ed, _| ed.destroy());
                         error_dialog.present();
                     }
@@ -1857,7 +1857,7 @@ impl MainWindow {
                                     gtk::ButtonsType::Close,
                                     format!("Failed to save model:\n\n{}", e),
                                 );
-                                error_dialog.set_title(Some("SWAI — Save Error"));
+                                error_dialog.set_title(Some("SWAI - Save Error"));
                                 error_dialog.connect_response(|ed, _| ed.destroy());
                                 error_dialog.present();
                             }
@@ -1871,7 +1871,7 @@ impl MainWindow {
                             gtk::ButtonsType::Close,
                             format!("Validation error:\n\n{}", e),
                         );
-                        error_dialog.set_title(Some("SWAI — Import Error"));
+                        error_dialog.set_title(Some("SWAI - Import Error"));
                         error_dialog.connect_response(|ed, _| ed.destroy());
                         error_dialog.present();
                     }
@@ -2034,7 +2034,7 @@ impl MainWindow {
             .build();
 
         let check_dialog = gtk::Dialog::builder()
-            .title("SWAI — Check for Updates")
+            .title("SWAI - Check for Updates")
             .transient_for(&parent_about)
             .modal(true)
             .build();
@@ -2087,7 +2087,7 @@ impl MainWindow {
                             version,
                         ),
                     );
-                    dlg.set_title(Some("SWAI — Update Available"));
+                    dlg.set_title(Some("SWAI - Update Available"));
                     dlg.add_button("_Later", ResponseType::Cancel);
                     dlg.add_button("_Download & Install", ResponseType::Ok);
 
@@ -2113,7 +2113,7 @@ impl MainWindow {
                                             new_version,
                                         ),
                                     );
-                                    notif.set_title(Some("SWAI — Update Complete"));
+                                    notif.set_title(Some("SWAI - Update Complete"));
                                     notif.present();
                                 }
                                 crate::update_installer::UpdateInstallResult::Error(e) => {
@@ -2124,7 +2124,7 @@ impl MainWindow {
                                         gtk::ButtonsType::Close,
                                         &format!("Update failed:\n\n{}", e),
                                     );
-                                    err.set_title(Some("SWAI — Update Error"));
+                                    err.set_title(Some("SWAI - Update Error"));
                                     err.present();
                                 }
                             }
@@ -2141,7 +2141,8 @@ impl MainWindow {
                         gtk::ButtonsType::Close,
                         "You are running the latest version of SWAI.",
                     );
-                    dlg.set_title(Some("SWAI — Up to Date"));
+                    dlg.set_title(Some("SWAI - Up to Date"));
+                    dlg.connect_response(|d, _| d.destroy());
                     dlg.present();
                 }
                 crate::update_checker::UpdateCheckResult::Error(e) => {
@@ -2152,7 +2153,8 @@ impl MainWindow {
                         gtk::ButtonsType::Close,
                         &format!("Failed to check for updates:\n\n{}", e),
                     );
-                    dlg.set_title(Some("SWAI — Update Check Failed"));
+                    dlg.set_title(Some("SWAI - Update Check Failed"));
+                    dlg.connect_response(|d, _| d.destroy());
                     dlg.present();
                 }
             }
@@ -2474,7 +2476,7 @@ impl MainWindow {
             if is_ok && bg_enable_notifications {
                 // Schedule notification on the main (GLib) thread.
                 let auto_restart_body = format!(
-                    "Context full — {} restarted",
+                    "Context full - {} restarted",
                     bg_model_id
                 );
                 glib::idle_add_once(move || {
