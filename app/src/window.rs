@@ -613,7 +613,7 @@ impl MainWindow {
                             footer_model_label_clone.set_text(&format!("{} active", active_card.config().name));
                             footer_model_label_clone.set_css_classes(&["accent-label"]);
                         } else {
-                            footer_model_label_clone.set_text("SWAI v0.1.0");
+                            footer_model_label_clone.set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
                             footer_model_label_clone.set_css_classes(&["dim-label"]);
                         }
 
@@ -661,7 +661,7 @@ impl MainWindow {
                             footer_model_label_clone.set_text(&format!("{} active", active_card.config().name));
                             footer_model_label_clone.set_css_classes(&["accent-label"]);
                         } else {
-                            footer_model_label_clone.set_text("SWAI v0.1.0");
+                            footer_model_label_clone.set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
                             footer_model_label_clone.set_css_classes(&["dim-label"]);
                         }
                     }
@@ -1995,7 +1995,7 @@ impl MainWindow {
         footer.append(&spacer);
 
         // Right side: active model name in cyan or version string.
-        let model_label = Label::new(Some("SWAI v0.1.0"));
+        let model_label = Label::new(Some(&format!("SWAI v{}", env!("CARGO_PKG_VERSION"))));
         model_label.set_css_classes(&["dim-label"]);
         model_label.set_halign(gtk::Align::End);
         footer.append(&model_label);
