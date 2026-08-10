@@ -32,15 +32,8 @@ pub enum UpdateInstallResult {
 /// 3. Replaces `~/.local/bin/swai` with the new binary.
 /// 4. Sends a desktop notification on success or failure.
 pub fn install_update(github_repo: &str, version: &str) -> UpdateInstallResult {
-    let download_url = format!(
-        "https://github.com/{}/releases/download/{}/swai-linux-x86_64.AppImage",
-        github_repo, version
-    );
-
-    tracing::info!("Downloading SWAI update from {}", download_url);
-
-    // Download the tarball.
     let client = match Client::builder()
+        .user_agent("SWAI/1.0 (Linux; GTK4)")
         .timeout(std::time::Duration::from_secs(120))
         .build()
     {
@@ -48,19 +41,54 @@ pub fn install_update(github_repo: &str, version: &str) -> UpdateInstallResult {
         Err(e) => return UpdateInstallResult::Error(format!("Failed to build HTTP client: {}", e)),
     };
 
-    let mut response = match client.get(&download_url).send() {
-        Ok(resp) => resp,
-        Err(e) => return UpdateInstallResult::Error(format!("Download failed: {}", e)),
-    };
+    let clean_ver = version.trim_start_matches('v');
+    let tag_name = format!("v{}", clean_ver);
+    let tags_to_try = [tag_name.clone(), clean_ver.to_string()];
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().unwrap_or_default();
-        return UpdateInstallResult::Error(format!(
-            "GitHub release download returned status {}: {}",
-            status, body
-        ));
+    // Candidate asset filenames on GitHub release page
+    let candidate_files = [
+        format!("swai-linux-x86_64.tar.gz"),
+        format!("swai-{}-linux-x86_64.tar.gz", tag_name),
+        format!("swai-{}-linux-x86_64.tar.gz", version),
+        format!("swai-linux-x86_64.AppImage"),
+        format!("swai"),
+    ];
+
+    let mut download_response = None;
+    let mut last_error = String::new();
+
+    'outer: for tag in &tags_to_try {
+        for file_name in &candidate_files {
+            let url = format!(
+                "https://github.com/{}/releases/download/{}/{}",
+                github_repo, tag, file_name
+            );
+            tracing::info!("Attempting SWAI update download from {}", url);
+
+            match client.get(&url).send() {
+                Ok(resp) if resp.status().is_success() => {
+                    download_response = Some(resp);
+                    break 'outer;
+                }
+                Ok(resp) => {
+                    last_error = format!("Status {} from {}", resp.status(), url);
+                }
+                Err(e) => {
+                    last_error = format!("Request failed: {}", e);
+                }
+            }
+        }
     }
+
+    let mut response = match download_response {
+        Some(resp) => resp,
+        None => {
+            return UpdateInstallResult::Error(format!(
+                "Could not download release asset for version {}. {}",
+                version, last_error
+            ));
+        }
+    };
 
     // Create a temporary directory for extraction.
     let temp_dir = match tempfile::tempdir() {

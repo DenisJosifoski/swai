@@ -206,8 +206,10 @@ pub fn check_for_updates_blocking(
     let release_url = release.html_url.unwrap_or_default();
     let changelog = release.body.filter(|b| !b.is_empty());
 
+    let version_str = tag_name.trim_start_matches('v').to_string();
+
     UpdateCheckResult::UpdateAvailable {
-        version: latest_version.to_string(),
+        version: version_str,
         release_url,
         changelog,
     }

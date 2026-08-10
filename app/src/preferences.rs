@@ -174,15 +174,28 @@ impl PreferencesDialog {
                                         Some(&dialog_parent),
                                         gtk::DialogFlags::MODAL,
                                         gtk::MessageType::Info,
-                                        gtk::ButtonsType::Close,
+                                        gtk::ButtonsType::None,
                                         &format!(
-                                            "SWAI updated to v{}!\n\n\
-                                             Restart the app to apply.",
+                                            "SWAI updated to v{} successfully!\n\n\
+                                             Click 'Restart Now' to apply the update.",
                                             new_version,
                                         ),
                                     );
                                     notif.set_title(Some("SWAI - Update Complete"));
-                                    notif.connect_response(|n, _| n.destroy());
+                                    notif.add_button("_Later", ResponseType::Cancel);
+                                    notif.add_button("_Restart Now", ResponseType::Ok);
+
+                                    notif.connect_response(|n, response| {
+                                        if response == ResponseType::Ok {
+                                            if let Ok(exe) = std::env::current_exe() {
+                                                let _ = std::process::Command::new(exe).spawn();
+                                            } else {
+                                                let _ = std::process::Command::new("swai").spawn();
+                                            }
+                                            std::process::exit(0);
+                                        }
+                                        n.destroy();
+                                    });
                                     notif.present();
                                 }
                                 crate::update_installer::UpdateInstallResult::Error(e) => {
