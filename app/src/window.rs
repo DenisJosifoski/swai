@@ -768,10 +768,15 @@ impl MainWindow {
                             };
 
                             let is_ok = result.is_ok();
-                            let _ = bg_sender.send(ChannelMessage::SwitchCompleted {
-                                target_id: bg_target_id,
-                                result,
-                            });
+
+                            // The health monitor drives the final state.
+                            // Only send SwitchCompleted on failure.
+                            if !is_ok {
+                                let _ = bg_sender.send(ChannelMessage::SwitchCompleted {
+                                    target_id: bg_target_id,
+                                    result,
+                                });
+                            }
 
                             if is_ok {
                                 while bg_ka.load(Ordering::SeqCst) {
@@ -896,17 +901,20 @@ impl MainWindow {
                                         };
 
                                         // P0-1/P2-4: Spawn health monitor polling thread.
+                                        // The health monitor drives the final Ready/Error
+                                        // state — we don't send SwitchCompleted on success
+                                        // because start_model only spawns the process.
                                         if is_ok {
                                             let pm_health = Arc::clone(&pm_thread);
                                             let sender_health = sender_health_for_thread.clone();
                                             let model_id_health = bg_model_id.clone();
                                             Self::spawn_health_monitor(pm_health, sender_health, model_id_health);
+                                        } else {
+                                            let _ = sender_thread.send(ChannelMessage::SwitchCompleted {
+                                                target_id: bg_model_id,
+                                                result,
+                                            });
                                         }
-
-                                        let _ = sender_thread.send(ChannelMessage::SwitchCompleted {
-                                            target_id: bg_model_id,
-                                            result,
-                                        });
 
                                         if is_ok {
                                             if let Some(ref proxy) = proxy_for_handler {
@@ -1021,17 +1029,20 @@ impl MainWindow {
                                     };
 
                                     // P0-1/P2-4: Spawn health monitor polling thread.
+                                    // The health monitor drives the final Ready/Error
+                                    // state — we don't send SwitchCompleted on success
+                                    // because start_model only spawns the process.
                                     if is_ok {
                                         let pm_health = Arc::clone(&pm_thread);
                                         let sender_health = sender_thread.clone();
                                         let model_id_health = bg_model_id.clone();
                                         Self::spawn_health_monitor(pm_health, sender_health, model_id_health);
+                                    } else {
+                                        let _ = sender_thread.send(ChannelMessage::SwitchCompleted {
+                                            target_id: bg_model_id,
+                                            result,
+                                        });
                                     }
-
-                                    let _ = sender_thread.send(ChannelMessage::SwitchCompleted {
-                                        target_id: bg_model_id,
-                                        result,
-                                    });
 
                                     if is_ok {
                                         if let Some(ref proxy) = proxy_restart {
@@ -1218,17 +1229,24 @@ impl MainWindow {
                                 };
 
                                 // P0-1/P2-4: Spawn health monitor polling thread.
+                                // The health monitor will send StateUpdate messages
+                                // that drive the card to Ready/Loading/Error.
+                                // We do NOT send SwitchCompleted here — start_model
+                                // only spawns the process, it doesn't confirm the
+                                // model is healthy. The health monitor owns the
+                                // final state transition.
                                 if is_ok {
                                     let pm_health = Arc::clone(&pm_thread);
                                     let sender_health = sender_health_for_thread.clone();
                                     let model_id_health = bg_model_id.clone();
                                     Self::spawn_health_monitor(pm_health, sender_health, model_id_health);
+                                } else {
+                                    // start_model failed — send error to UI.
+                                    let _ = sender_thread.send(ChannelMessage::SwitchCompleted {
+                                        target_id: bg_model_id,
+                                        result,
+                                    });
                                 }
-
-                                let _ = sender_thread.send(ChannelMessage::SwitchCompleted {
-                                    target_id: bg_model_id,
-                                    result,
-                                });
 
                                 if is_ok {
                                     if let Some(ref proxy) = proxy_for_handler {
@@ -1357,17 +1375,20 @@ impl MainWindow {
                             };
 
                             // P0-1/P2-4: Spawn health monitor polling thread.
+                            // The health monitor drives the final Ready/Error
+                            // state — we don't send SwitchCompleted on success
+                            // because start_model only spawns the process.
                             if is_ok {
                                 let pm_health = Arc::clone(&pm_thread);
                                 let sender_health = sender_thread.clone();
                                 let model_id_health = bg_model_id.clone();
                                 Self::spawn_health_monitor(pm_health, sender_health, model_id_health);
+                            } else {
+                                let _ = sender_thread.send(ChannelMessage::SwitchCompleted {
+                                    target_id: bg_model_id,
+                                    result,
+                                });
                             }
-
-                            let _ = sender_thread.send(ChannelMessage::SwitchCompleted {
-                                target_id: bg_model_id,
-                                result,
-                            });
 
                             if is_ok {
                                 if let Some(ref proxy) = proxy_restart {
@@ -2525,10 +2546,14 @@ impl MainWindow {
 
             let is_ok = result.is_ok();
 
-            let _ = bg_sender.send(ChannelMessage::SwitchCompleted {
-                target_id: bg_model_id.clone(),
-                result,
-            });
+            // The health monitor drives the final state.
+            // Only send SwitchCompleted on failure.
+            if !is_ok {
+                let _ = bg_sender.send(ChannelMessage::SwitchCompleted {
+                    target_id: bg_model_id.clone(),
+                    result,
+                });
+            }
 
             if is_ok && bg_enable_notifications {
                 // Schedule notification on the main (GLib) thread.
@@ -2590,6 +2615,12 @@ impl MainWindow {
     /// Bridges `ProcessManager::start_model_and_report` (which uses `Sender<ModelState>`)
     /// to the main channel (`Sender<ChannelMessage>`), converting state updates
     /// into `ChannelMessage::StateUpdate` variants.
+    ///
+    /// If the model is **already running** (e.g. started by the toggle handler
+    /// before this function was called), we skip `start_model_and_report` and
+    /// instead directly begin polling the model's port so the UI receives the
+    /// correct Ready/Loading/Starting transitions instead of staying stuck on
+    /// the initial Starting state.
     fn spawn_health_monitor(
         pm: Arc<Mutex<ProcessManager>>,
         sender: std::sync::mpsc::Sender<ChannelMessage>,
@@ -2598,14 +2629,36 @@ impl MainWindow {
         // Create a separate channel for ModelState → convert to ChannelMessage in main thread.
         let (health_tx, health_rx) = std::sync::mpsc::channel::<ModelState>();
 
-        // Spawn the health monitor thread.
-        let health_pm = Arc::clone(&pm);
-        let health_model_id = model_id.clone();
-        std::thread::spawn(move || {
-            if let Ok(mut pm) = health_pm.lock() {
-                let _ = pm.start_model_and_report(&health_model_id, health_tx);
+        // Check if the model is already running. If so, the toggle handler
+        // already started it — don't call start_model_and_report (which would
+        // fail with AnotherModelRunning and never poll).
+        let already_running = pm.lock()
+            .ok()
+            .map(|p| p.find_running_model(&model_id).is_some())
+            .unwrap_or(false);
+
+        if already_running {
+            // Model already started — just poll its port until Ready or timeout.
+            let port = pm.lock()
+                .ok()
+                .and_then(|p| p.get_port_for_model(&model_id));
+
+            if let Some(port) = port {
+                let monitor = swai_core::health_monitor::HealthMonitor::new(port, 30);
+                std::thread::spawn(move || {
+                    monitor.wait_until_ready_with_updates(health_tx);
+                });
             }
-        });
+        } else {
+            // Model not yet running — start it and report.
+            let health_pm = Arc::clone(&pm);
+            let health_model_id = model_id.clone();
+            std::thread::spawn(move || {
+                if let Ok(mut pm) = health_pm.lock() {
+                    let _ = pm.start_model_and_report(&health_model_id, health_tx);
+                }
+            });
+        }
 
         // Drain the health channel and convert to ChannelMessage.
         while let Ok(state) = health_rx.recv() {
