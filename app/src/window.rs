@@ -680,6 +680,7 @@ impl MainWindow {
                     }
                     // P0-1/P2-4: Handle intermediate state updates from health monitor.
                     ChannelMessage::StateUpdate { model_id, state } => {
+                        let mut needs_toggle_enable = false;
                         for c in cards_borrow.iter_mut() {
                             if c.config().id == model_id {
                                 match &state {
@@ -691,14 +692,22 @@ impl MainWindow {
                                     }
                                     ModelState::Ready => {
                                         c.set_state(CardState::Ready);
+                                        needs_toggle_enable = true;
                                     }
                                     ModelState::Error(msg) => {
                                         c.set_state(CardState::Error(format!(
                                             "Failed to load: {}", msg
                                         )));
+                                        needs_toggle_enable = true;
                                     }
                                     _ => {}
                                 }
+                            }
+                        }
+                        if needs_toggle_enable {
+                            for card in cards_borrow.iter_mut() {
+                                card.enable_toggle();
+                                card.enable_restart();
                             }
                         }
                     }
@@ -943,7 +952,7 @@ impl MainWindow {
 
                                     let pm_thread = Arc::clone(&pm_ref);
                                     let sender_thread = sender_inner.clone();
-                                    let _proxy_thread = proxy_for_toggle.as_ref().as_ref().map(Arc::clone);
+                                    let proxy_thread = proxy_for_toggle.as_ref().as_ref().map(Arc::clone);
                                     let bg_model_id = model_id.clone();
 
                                     std::thread::spawn(move || {
@@ -952,12 +961,22 @@ impl MainWindow {
                                             Err(_) => return,
                                         };
                                         let result = pm_lock.stop_model(&bg_model_id, false);
-                                        let _is_ok = result.is_ok();
+                                        let is_ok = result.is_ok();
                                         let _ = sender_thread.send(ChannelMessage::StopCompleted {
                                             running_id: bg_model_id,
                                             result,
-                                         });
-                                     });
+                                        });
+
+                                        if is_ok {
+                                            if let Some(ref proxy) = proxy_thread {
+                                                let running = pm_lock.running_model_ports();
+                                                proxy.lock().unwrap_or_else(|e| {
+                                                    tracing::error!("proxy state lock poisoned");
+                                                    e.into_inner()
+                                                }).sync_models(running);
+                                            }
+                                        }
+                                    });
                                 }
                             });
                         }
@@ -1277,26 +1296,27 @@ impl MainWindow {
                             let sender_thread = sender_inner.clone();
                             let proxy_thread = proxy_for_toggle.as_ref().as_ref().map(Arc::clone);
 
+                            let bg_model_id = model_id_toggle.clone();
+
                             std::thread::spawn(move || {
                                 let mut pm_lock = match pm_thread.lock() {
                                     Ok(g) => g,
                                     Err(_) => return,
                                 };
-                                if let Some(running_id) = pm_lock.get_primary_model_id().map(String::from) {
-                                    let result = pm_lock.stop_model(&running_id, false);
-                                    let is_ok = result.is_ok();
-                                    let _ = sender_thread.send(ChannelMessage::StopCompleted {
-                                        running_id,
-                                        result,
-                                    });
+                                let result = pm_lock.stop_model(&bg_model_id, false);
+                                let is_ok = result.is_ok();
+                                let _ = sender_thread.send(ChannelMessage::StopCompleted {
+                                    running_id: bg_model_id,
+                                    result,
+                                });
 
-                                    if is_ok {
-                                        if let Some(ref proxy) = proxy_thread {
-                                            proxy.lock().unwrap_or_else(|e| {
-                                                tracing::error!("proxy state lock poisoned");
-                                                e.into_inner()
-                                            }).clear();
-                                        }
+                                if is_ok {
+                                    if let Some(ref proxy) = proxy_thread {
+                                        let running = pm_lock.running_model_ports();
+                                        proxy.lock().unwrap_or_else(|e| {
+                                            tracing::error!("proxy state lock poisoned");
+                                            e.into_inner()
+                                        }).sync_models(running);
                                     }
                                 }
                             });

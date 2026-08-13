@@ -142,24 +142,43 @@ codex
 ```
 Codex will stream tokens live from your active SWAI model with zero disconnection errors!
 
-#### 2. Claude Code CLI Setup (`claude-local`)
+#### 2. Claude Code CLI Setup (`claude-local` & `claude-with`)
 
-Add the following helper function to your `~/.bashrc`:
+Add the following helper functions to your `~/.bashrc`:
 
 ```bash
+# Auto-detects the first active model:
 claude-local() {
   export ANTHROPIC_BASE_URL=http://localhost:9080
   export ANTHROPIC_AUTH_TOKEN=local
   export ANTHROPIC_API_KEY=""
   local live_model
-  live_model=$(curl -s http://localhost:9080/v1/models | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/^claude-//')
+  live_model=$(curl -s http://localhost:9080/v1/models 2>/dev/null \
+    | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/^claude-//')
   export ANTHROPIC_MODEL="${live_model:-unknown}[1m]"
   export ANTHROPIC_SMALL_FAST_MODEL="$ANTHROPIC_MODEL"
-  claude "${@}"
+  echo "🚀 Claude Code → $live_model"
+  claude "$@"
+}
+
+# Target a specific running model by name (e.g. claude-with qwopus):
+claude-with() {
+  local target="$1"; shift
+  export ANTHROPIC_BASE_URL=http://localhost:9080
+  export ANTHROPIC_AUTH_TOKEN=local
+  export ANTHROPIC_API_KEY=""
+  local live_model
+  live_model=$(curl -s http://localhost:9080/v1/models 2>/dev/null \
+    | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | grep -i "$target" | head -1 | sed 's/^claude-//')
+  if [ -z "$live_model" ]; then echo "⚠️  No SWAI model matching '$target'"; return 1; fi
+  export ANTHROPIC_MODEL="${live_model}[1m]"
+  export ANTHROPIC_SMALL_FAST_MODEL="$ANTHROPIC_MODEL"
+  echo "🚀 Claude Code → $live_model"
+  claude "$@"
 }
 ```
 
-Then run `source ~/.bashrc`. When you launch `claude-local`, the banner header will dynamically display the active model name loaded in SWAI (e.g. `Qwen3.6-35B-A3B-UD-Q4_K_XL[1m]`).
+Then run `source ~/.bashrc`. You can launch `claude-local` for automatic detection, or run `claude-with qwopus` / `claude-with ornith` to target a specific model directly. When running concurrent models in SWAI, each terminal tab routes to its respective model independently!
 
 #### 3. Claude Desktop Setup (Third-Party Inference → Gateway)
 

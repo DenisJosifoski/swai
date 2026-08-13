@@ -297,12 +297,18 @@ fn handle_proxy_request(
         }
     };
 
-    // Ollama endpoint translation — handle before generic forwarding.
+    // Handle OpenAI /v1/models endpoint to list all currently running models.
     let path_and_query = req.url().to_string();
+    if req.method().as_str() == "GET" && (path_and_query == "/v1/models" || path_and_query == "/models") {
+        handle_v1_models(req, &state);
+        return;
+    }
+
+    // Ollama endpoint translation — handle before generic forwarding.
     if is_ollama_endpoint(&path_and_query) {
         match path_and_query.as_str() {
             "/api/tags" => {
-                handle_ollama_tags(req);
+                handle_ollama_tags(req, &state);
                 return;
             }
             "/api/generate" => {
@@ -1105,19 +1111,6 @@ fn ollama_chat_to_openai(req: &OllamaChatRequest) -> serde_json::Value {
     body
 }
 
-/// Build an Ollama `/api/tags` response from the proxy state.
-fn build_ollama_tags() -> serde_json::Value {
-    let models = vec![
-        OllamaTagEntry {
-            name: "swai-model".to_string(),
-            model_id: "swai-model".to_string(),
-            modified_at: chrono::Utc::now().to_rfc3339(),
-            size: 0,
-        },
-    ];
-    serde_json::json!({ "models": models })
-}
-
 /// Handle Ollama `/api/generate` — translate to OpenAI and forward.
 fn handle_ollama_generate(
     mut req: Request,
@@ -1599,14 +1592,102 @@ fn handle_ollama_chat(
     }
 }
 
-/// Handle Ollama `/api/tags` — return a static model list.
-fn handle_ollama_tags(req: Request) {
-    let tags = build_ollama_tags();
+/// Handle OpenAI `/v1/models` and `/models` — list all currently active models.
+fn handle_v1_models(req: Request, state: &Arc<Mutex<ProxyState>>) {
+    let proxy_state = match state.lock() {
+        Ok(s) => s,
+        Err(_) => {
+            let _ = req.respond(error_response(500, "Internal proxy error"));
+            return;
+        }
+    };
+
+    let mut model_entries = Vec::new();
+    for model_id in proxy_state.active_models.keys() {
+        model_entries.push(serde_json::json!({
+            "id": model_id,
+            "object": "model",
+            "created": 1700000000,
+            "owned_by": "swai",
+            "permission": []
+        }));
+    }
+
+    // If active_models is empty but primary_port is set, provide a fallback entry.
+    if model_entries.is_empty() && proxy_state.primary_port.is_some() {
+        model_entries.push(serde_json::json!({
+            "id": "swai-model",
+            "object": "model",
+            "created": 1700000000,
+            "owned_by": "swai",
+            "permission": []
+        }));
+    }
+
+    let payload = serde_json::json!({
+        "object": "list",
+        "data": model_entries
+    });
+
+    let body = serde_json::to_vec(&payload).unwrap_or_default();
+    let headers = vec![
+        Header::from_bytes("content-type", b"application/json").unwrap(),
+        Header::from_bytes("content-length", body.len().to_string().as_bytes()).unwrap(),
+        Header::from_bytes("access-control-allow-origin", b"*").unwrap(),
+    ];
+
+    let response = Response::new(
+        tiny_http::StatusCode(200),
+        headers,
+        std::io::Cursor::new(body),
+        None,
+        None,
+    );
+
+    let _ = req.respond(response);
+}
+
+/// Build an Ollama `/api/tags` response from the proxy state.
+pub fn build_ollama_tags_from_state(proxy_state: &ProxyState) -> serde_json::Value {
+    let mut models = Vec::new();
+    for model_id in proxy_state.active_models.keys() {
+        models.push(OllamaTagEntry {
+            name: model_id.clone(),
+            model_id: model_id.clone(),
+            modified_at: chrono::Utc::now().to_rfc3339(),
+            size: 0,
+        });
+    }
+
+    if models.is_empty() {
+        models.push(OllamaTagEntry {
+            name: "swai-model".to_string(),
+            model_id: "swai-model".to_string(),
+            modified_at: chrono::Utc::now().to_rfc3339(),
+            size: 0,
+        });
+    }
+
+    serde_json::json!({ "models": models })
+}
+
+/// Handle Ollama `/api/tags` — return a dynamic model list from active models.
+fn handle_ollama_tags(req: Request, state: &Arc<Mutex<ProxyState>>) {
+    let proxy_state = match state.lock() {
+        Ok(s) => s,
+        Err(_) => {
+            let _ = req.respond(error_response(500, "Internal proxy error"));
+            return;
+        }
+    };
+
+    let tags = build_ollama_tags_from_state(&proxy_state);
     let body = serde_json::to_vec(&tags).unwrap_or_default();
 
     let headers = vec![
         Header::from_bytes("content-type", b"application/json").unwrap(),
         Header::from_bytes("content-length", body.len().to_string().as_bytes()).unwrap(),
+        Header::from_bytes("access-control-allow-origin", b"*").unwrap(),
     ];
 
     let response = Response::new(
@@ -2354,11 +2435,13 @@ mod tests {
 
     #[test]
     fn test_build_ollama_tags() {
-        let tags = build_ollama_tags();
+        let mut state = ProxyState::new();
+        state.add_model("model-a".to_string(), 8090);
+        let tags = build_ollama_tags_from_state(&state);
         let models = tags["models"].as_array().unwrap();
         assert_eq!(models.len(), 1);
-        assert_eq!(models[0]["name"], "swai-model");
-        assert_eq!(models[0]["model"], "swai-model");
+        assert_eq!(models[0]["name"], "model-a");
+        assert_eq!(models[0]["model"], "model-a");
         assert!(models[0]["modified_at"].is_string());
     }
 
