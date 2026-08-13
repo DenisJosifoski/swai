@@ -430,9 +430,16 @@ impl std::fmt::Debug for RunningModel {
 }
 
 /// Process manager — manages the lifecycle of model processes.
+///
+/// Supports running multiple models concurrently (up to `max_concurrent_models`
+/// from preferences). The first model started becomes the "primary" active
+/// model; subsequent models are added to the running set.
 pub struct ProcessManager {
     config: Config,
-    running_model: Option<RunningModel>,
+    running_models: Vec<RunningModel>,
+    /// Index of the primary (first-started) model in `running_models`.
+    /// `None` when no models are running.
+    primary_index: Option<usize>,
 }
 
 impl ProcessManager {
@@ -440,13 +447,24 @@ impl ProcessManager {
     pub fn new(config: Config) -> Self {
         Self {
             config,
-            running_model: None,
+            running_models: Vec::new(),
+            primary_index: None,
         }
     }
 
     /// Access the underlying config for reconciliation at startup.
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Maximum number of concurrent models allowed (from preferences).
+    pub fn max_concurrent_models(&self) -> usize {
+        self.config.max_concurrent_models()
+    }
+
+    /// Number of currently running models.
+    pub fn running_count(&self) -> usize {
+        self.running_models.len()
     }
 
     /// Add a newly imported model to the in-memory config.
@@ -462,15 +480,11 @@ impl ProcessManager {
     /// Returns `Err` if the model is not found in config.
     pub fn remove_model(&mut self, id: &str) -> Result<(), String> {
         // If the model is currently running, stop it first.
-        if let Some(running) = &self.running_model {
-            if running.id == id {
-                info!("stopping model '{}' before removal", id);
-                // Use graceful shutdown (not fast) — deletion isn't an emergency.
-                if let Err(e) = self.stop_model(id, false) {
-                    warn!("failed to stop model '{}' before removal: {}", id, e);
-                    // Continue with removal anyway — the process may have
-                    // already exited on its own; we just can't guarantee it.
-                }
+        if self.running_models.iter().position(|m| m.id == id).is_some() {
+            info!("stopping model '{}' before removal", id);
+            // Use graceful shutdown (not fast) — deletion isn't an emergency.
+            if let Err(e) = self.stop_model(id, false) {
+                warn!("failed to stop model '{}' before removal: {}", id, e);
             }
         }
 
@@ -486,10 +500,11 @@ impl ProcessManager {
         Ok(())
     }
 
-    /// Start a model by id.
+    /// Start a model by id. Returns `Err` if the concurrent model limit is reached.
     pub fn start_model(&mut self, id: &str) -> Result<(), ProcessError> {
-        // One-at-a-time rule
-        if let Some(ref _running) = self.running_model {
+        // Check concurrent model limit
+        let max = self.max_concurrent_models();
+        if self.running_models.len() >= max {
             return Err(ProcessError::AnotherModelRunning);
         }
 
@@ -529,11 +544,16 @@ impl ProcessManager {
         match guard_result {
             Ok(guard) => {
                 info!("started model '{}' on port {}", id, model_config.port);
-                self.running_model = Some(RunningModel {
+                let idx = self.running_models.len();
+                let is_primary = self.primary_index.is_none();
+                self.running_models.push(RunningModel {
                     id: id.to_string(),
                     guard: Box::new(guard),
                     state: ModelState::Starting,
                 });
+                if is_primary {
+                    self.primary_index = Some(idx);
+                }
                 Ok(())
             }
             Err(e) => {
@@ -547,14 +567,11 @@ impl ProcessManager {
     /// If `fast_shutdown` is true, escalate to SIGKILL after 500ms instead of
     /// waiting up to `shutdown_timeout_sec`, releasing GPU memory instantly.
     pub fn stop_model(&mut self, id: &str, fast_shutdown: bool) -> Result<(), ProcessError> {
-        let running = self
-            .running_model
-            .as_ref()
+        let idx = self
+            .running_models
+            .iter()
+            .position(|m| m.id == id)
             .ok_or_else(|| ProcessError::NotRunning(id.to_string()))?;
-
-        if running.id != id {
-            return Err(ProcessError::NotRunning(id.to_string()));
-        }
 
         // Get the port from the config for the running model
         let port = self
@@ -566,44 +583,49 @@ impl ProcessManager {
             .ok_or_else(|| ProcessError::NotRunning(id.to_string()))?;
 
         // Terminate the process group
-        running.guard.terminate(fast_shutdown)?;
+        self.running_models.remove(idx).guard.terminate(fast_shutdown)?;
 
         // Confirm port is free via TCP bind retry (up to 10s)
         Self::wait_port_free(port, Duration::from_secs(10))?;
 
+        // Adjust primary_index if needed
+        if self.primary_index == Some(idx) {
+            self.primary_index = None;
+        } else if let Some(ref mut pi) = self.primary_index {
+            if *pi > idx {
+                *pi -= 1;
+            }
+        }
+
         info!("stopped model '{}'", id);
-        self.running_model = None;
         Ok(())
     }
 
     /// Stop all running models.
     pub fn stop_all(&mut self, fast_shutdown: bool) -> Result<(), ProcessError> {
-        if let Some(ref running) = self.running_model {
-            let id = running.id.clone();
+        // Stop in reverse order so primary_index adjustments stay valid.
+        while let Some(running) = self.running_models.pop() {
             let port = self
                 .config
                 .models
                 .iter()
-                .find(|m| m.id == id)
+                .find(|m| m.id == running.id)
                 .map(|m| m.port)
-                .ok_or_else(|| ProcessError::NotRunning(id.clone()))?;
+                .ok_or_else(|| ProcessError::NotRunning(running.id.clone()))?;
             running.guard.terminate(fast_shutdown)?;
             Self::wait_port_free(port, Duration::from_secs(10))?;
         }
-        self.running_model = None;
+        self.primary_index = None;
         Ok(())
     }
 
     /// Switch from one model to another (atomic sequence).
     ///
     /// Stops the current model, waits 500ms for CUDA context release,
-    /// then starts the new model. If any step fails, `running_model` is
-    /// set to `None` so the application state cleanly reflects "nothing running".
+    /// then starts the new model. If any step fails, affected state is cleaned up.
     pub fn switch_model(&mut self, from_id: &str, to_id: &str) -> Result<(), ProcessError> {
         // Step 1: stop the current model
         if let Err(e) = self.stop_model(from_id, false) {
-            // If stop fails, clear running_model so state is clean.
-            self.running_model = None;
             return Err(e);
         }
 
@@ -613,27 +635,48 @@ impl ProcessManager {
         // Step 3: start the new model
         match self.start_model(to_id) {
             Ok(()) => Ok(()),
-            Err(e) => {
-                // If start fails after stop succeeded, running_model is None
-                // (start_model doesn't set it on error). State is clean.
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
-    /// Get the currently running model, if any.
-    pub fn get_running_model(&self) -> Option<&RunningModel> {
-        self.running_model.as_ref()
+    /// Get the currently running models.
+    pub fn get_running_models(&self) -> &[RunningModel] {
+        &self.running_models
     }
 
-    /// Get the currently running model id, if any.
-    pub fn get_running_model_id(&self) -> Option<&str> {
-        self.running_model.as_ref().map(|m| m.id.as_str())
+    /// Get the primary (first-started) running model, if any.
+    pub fn get_primary_model(&self) -> Option<&RunningModel> {
+        self.primary_index
+            .and_then(|i| self.running_models.get(i))
     }
 
-    /// Set the running model (used during reconciliation at startup).
+    /// Get the primary running model id, if any.
+    pub fn get_primary_model_id(&self) -> Option<&str> {
+        self.primary_index
+            .and_then(|i| self.running_models.get(i).map(|m| m.id.as_str()))
+    }
+
+    /// Find a running model by id.
+    pub fn find_running_model(&self, id: &str) -> Option<&RunningModel> {
+        self.running_models.iter().find(|m| m.id == id)
+    }
+
+    /// Get the port for a running model by id.
+    pub fn get_port_for_model(&self, id: &str) -> Option<u16> {
+        self.config
+            .models
+            .iter()
+            .find(|m| m.id == id)
+            .map(|m| m.port)
+    }
+
+    /// Set a running model (used during reconciliation at startup).
     pub fn set_running_model(&mut self, model: RunningModel) {
-        self.running_model = Some(model);
+        let idx = self.running_models.len();
+        if self.primary_index.is_none() {
+            self.primary_index = Some(idx);
+        }
+        self.running_models.push(model);
     }
 
     /// Check if a port is free or occupied by a llama-server process.
@@ -766,6 +809,29 @@ impl ProcessManager {
 
         Ok(())
     }
+
+    /// Resolve a model identifier (id or name) to the port of its running instance.
+    ///
+    /// Returns `None` if the model is not currently running, allowing the proxy
+    /// to fall back to the primary active model.
+    pub fn resolve_running_port(&self, identifier: &str) -> Option<u16> {
+        // Try matching by id first, then by name (config.name).
+        for model in &self.running_models {
+            if model.id == identifier {
+                return self.get_port_for_model(&model.id);
+            }
+        }
+        // Check config names for a running model.
+        if self.config.models.iter().any(|c| c.name == identifier) {
+            // Find the running model that matches this name.
+            for model in &self.running_models {
+                if let Some(cfg) = self.config.models.iter().find(|c| c.name == identifier && c.id == model.id) {
+                    return Some(cfg.port);
+                }
+            }
+        }
+        None
+    }
 }
 
 /// State of a network port.
@@ -779,6 +845,7 @@ pub enum PortState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{Config, GlobalSettings, PreferencesConfig};
 
     #[test]
     fn test_port_state_free() {
@@ -798,5 +865,27 @@ mod tests {
         let err = ProcessError::PortOccupiedByUnknownProcess { pid: 1234, port: 8081 };
         assert!(err.to_string().contains("8081"));
         assert!(err.to_string().contains("1234"));
+    }
+
+    #[test]
+    fn test_process_manager_multi_model_state() {
+        // Verify the ProcessManager struct supports multiple running models.
+        let _tmp = tempfile::tempdir().unwrap();
+        let config = Config {
+            schema_version: 1,
+            models: vec![],
+            global: GlobalSettings::default(),
+            preferences: PreferencesConfig {
+                auto_follow_logs: true,
+                enable_notifications: true,
+                notify_on_switch: true,
+                autostart_on_login: false,
+                max_concurrent_models: 4,
+            },
+        };
+        let pm = ProcessManager::new(config);
+        assert_eq!(pm.running_count(), 0);
+        assert!(pm.get_primary_model().is_none());
+        assert!(pm.get_primary_model_id().is_none());
     }
 }

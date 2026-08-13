@@ -314,7 +314,7 @@ fn dispatch_action(
 ) -> ActionResponse {
     match request.action.as_str() {
         "status" => {
-            let running = pm.get_running_model_id();
+            let running = pm.get_primary_model_id();
             let message = match running {
                 Some(id) => format!("Active model: {}", id),
                 None => "No active model".to_string(),
@@ -357,7 +357,7 @@ fn dispatch_action(
             };
 
             // Resolve cycling values (next/prev) to actual model IDs.
-            let running_id = pm.get_running_model_id();
+            let running_id = pm.get_primary_model_id();
             let resolved = match resolve_cycle_model_id(&state.config, running_id, model_id) {
                 Some(id) => id,
                 None => {
@@ -398,7 +398,7 @@ fn dispatch_action(
                 }
                 "switch" => {
                     // Stop current model then start the new one.
-                    let from_id = pm.get_running_model_id().map(|s| s.to_string());
+                    let from_id = pm.get_primary_model_id().map(|s| s.to_string());
                     match pm.switch_model(
                         from_id.as_deref().unwrap_or(""),
                         &target.id,
@@ -1064,7 +1064,7 @@ mod tests {
             "m1",
         );
         let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_running_model_id(), "next"), Some("m2".to_string()));
+        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"), Some("m2".to_string()));
     }
 
     #[test]
@@ -1083,7 +1083,7 @@ mod tests {
             "m1",
         );
         let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_running_model_id(), "prev"), Some("m2".to_string()));
+        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "prev"), Some("m2".to_string()));
     }
 
     #[test]
@@ -1102,7 +1102,7 @@ mod tests {
             "m2",
         );
         let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_running_model_id(), "next"), Some("m1".to_string()));
+        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"), Some("m1".to_string()));
     }
 
     #[test]
@@ -1289,6 +1289,7 @@ mod tests {
         assert_eq!(resp.status, "ok");
         // Proxy should be cleared.
         let ps = state.proxy_state.lock().unwrap_or_else(|e| e.into_inner());
-        assert!(ps.target_port.is_none());
+        assert!(ps.primary_port.is_none());
+        assert!(ps.active_models.is_empty());
     }
 }

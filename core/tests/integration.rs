@@ -229,7 +229,7 @@ fn test_zombie_port_path() {
 
     // Verify no model is running (switch stopped model-a but failed to start model-b).
     assert!(
-        pm.get_running_model_id().is_none(),
+        pm.get_primary_model_id().is_none(),
         "no model should be running after a failed switch"
     );
 

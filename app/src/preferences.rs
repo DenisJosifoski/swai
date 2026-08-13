@@ -5,7 +5,8 @@ use gtk::prelude::*;
 use gtk::{FileChooserAction, Orientation, ResponseType, Window};
 
 use adw::prelude::*;
-use adw::{EntryRow, ExpanderRow, SwitchRow};
+use adw::{ActionRow, EntryRow, ExpanderRow, SwitchRow};
+use gtk::SpinButton;
 
 use swai_core::config::Config;
 
@@ -23,6 +24,7 @@ pub struct PreferencesDialog {
     enable_notifications_switch: SwitchRow,
     notify_on_switch_switch: SwitchRow,
     autostart_switch: SwitchRow,
+    max_concurrent_spin: SpinButton,
 }
 
 /// The values from the preferences form.
@@ -35,6 +37,7 @@ pub struct PreferencesValues {
     pub enable_notifications: bool,
     pub notify_on_switch: bool,
     pub autostart_on_login: bool,
+    pub max_concurrent_models: usize,
 }
 
 impl PreferencesDialog {
@@ -55,6 +58,7 @@ impl PreferencesDialog {
         let enable_notifications = self.enable_notifications_switch.is_active();
         let notify_on_switch = self.notify_on_switch_switch.is_active();
         let autostart = self.autostart_switch.is_active();
+        let max_concurrent = self.max_concurrent_spin.value() as usize;
 
         PreferencesValues {
             log_dir,
@@ -64,6 +68,7 @@ impl PreferencesDialog {
             enable_notifications,
             notify_on_switch,
             autostart_on_login: autostart,
+            max_concurrent_models: max_concurrent,
         }
     }
 
@@ -121,6 +126,9 @@ impl PreferencesDialog {
 
         // Autostart on login switch.
         let autostart_switch = Self::add_autostart_on_login_row(&content_box, config);
+
+        // Max concurrent models spin button.
+        let max_concurrent_spin = Self::add_max_concurrent_models_row(&content_box, config);
 
         // Phase 20: "Check for Updates" button.
         let check_update_btn = gtk::Button::builder()
@@ -270,6 +278,7 @@ impl PreferencesDialog {
             enable_notifications_switch,
             notify_on_switch_switch,
             autostart_switch,
+            max_concurrent_spin,
         }
     }
 
@@ -297,6 +306,7 @@ impl PreferencesDialog {
         let enable_notifications = self.enable_notifications_switch.is_active();
         let notify_on_switch = self.notify_on_switch_switch.is_active();
         let autostart = self.autostart_switch.is_active();
+        let max_concurrent = self.max_concurrent_spin.value() as usize;
 
         let mut config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
         config.global.log_dir = log_dir;
@@ -306,6 +316,7 @@ impl PreferencesDialog {
         config.preferences.enable_notifications = enable_notifications;
         config.preferences.notify_on_switch = notify_on_switch;
         config.preferences.autostart_on_login = autostart;
+        config.preferences.max_concurrent_models = max_concurrent;
 
         Config::validate(&config, config_path).map_err(|e| format!("Config validation error: {}", e))?;
 
@@ -447,6 +458,34 @@ impl PreferencesDialog {
 
         parent.append(&row);
         row
+    }
+
+    /// Add a spin button for configuring the maximum number of concurrent
+    /// model servers (1–4). Placed in the System section of the preferences.
+    fn add_max_concurrent_models_row(parent: &gtk::Box, config: &Config) -> SpinButton {
+        let current = config.max_concurrent_models().clamp(1, 4) as f64;
+
+        let adj = gtk::Adjustment::new(
+            current,   // value
+            1.0,       // lower bound
+            4.0,       // upper bound
+            1.0,       // step increment
+            1.0,       // page increment
+            0.0,       // page size
+        );
+
+        let spin = SpinButton::new(Some(&adj), 0.0, 0);
+        spin.set_snap_to_ticks(true);
+
+        // Wrap in an ActionRow for consistent styling with the rest of the dialog.
+        let row = ActionRow::builder()
+            .title("Max concurrent models")
+            .subtitle("Number of model servers allowed to run simultaneously (1–4)")
+            .build();
+        row.add_prefix(&spin);
+
+        parent.append(&row);
+        spin
     }
 
     // ─── Gateway Information Section (Phase 12.2 + Phase 17) ────────────────
