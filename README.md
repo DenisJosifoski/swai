@@ -1,4 +1,4 @@
-# SWAI (SWitch AI) — Native Linux Model Switcher & Gateway
+# SWAI (SWitch AI) - Native Linux Model Switcher & Gateway
 
 <p align="center">
   <img src="https://github.com/verdioso/swai/raw/main/swai.png" alt="SWAI App Icon" width="160" />
@@ -6,7 +6,7 @@
 
 A native Linux desktop app for starting, stopping, and monitoring local
 llama.cpp model servers, one at a time, from bash launch scripts. Written
-entirely in Rust with a GTK4 + Libadwaita native shell UI — no webview, no Electron,
+entirely in Rust with a GTK4 + Libadwaita native shell UI - no webview, no Electron,
 no Tauri.
 
 ## Features
@@ -14,13 +14,13 @@ no Tauri.
 - **Start / Stop / Switch** local llama.cpp model servers from a native
   GTK4 window with model cards.
 - **System tray icon** with quick-switch menu, window visibility toggle,
-  and clean quit — works natively on KDE Plasma.
-- **Context display** — polls `/slots` to show token usage per model card,
+  and clean quit - works natively on KDE Plasma.
+- **Context display** - polls `/slots` to show token usage per model card,
   color-coded when approaching context limits.
 - **Auto-restart** when context is full (configurable).
 - **Reverse proxy** on a fixed local port so IDE/CLI clients never need
   reconfiguration when switching models.
-- **Third-Party Inference Gateway** — connect Claude Desktop and other
+- **Third-Party Inference Gateway** - connect Claude Desktop and other
   inference clients via `http://127.0.0.1:9080` with Anthropic Messages
   API support (`POST /v1/messages`, `GET /v1/models`).
 - **Live log viewer** with auto-tail, clear, and export.
@@ -74,7 +74,7 @@ display to work correctly. See the example script below.
 
 ```bash
 #!/bin/bash
-# start-my-model.sh — launch a local llama.cpp server
+# start-my-model.sh - launch a local llama.cpp server
 exec llama-server \
     --model "$MODEL_PATH" \
     --port "$PORT" \
@@ -225,9 +225,9 @@ left with a hidden window and no way to bring it back.
 ```
 swai/
 ├── Cargo.toml              # workspace root
-├── core/                   # library crate — config, process lifecycle,
+├── core/                   # library crate - config, process lifecycle,
 │                           #   health monitoring, reverse proxy, single instance
-├── app/                    # binary crate — GTK4 UI, system tray, menus
+├── app/                    # binary crate - GTK4 UI, system tray, menus
 ├── install.sh
 └── README.md
 ```
