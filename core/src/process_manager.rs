@@ -462,6 +462,11 @@ impl ProcessManager {
         self.config.max_concurrent_models()
     }
 
+    /// Update the in-memory config (e.g. after saving preferences).
+    pub fn update_config(&mut self, new_config: Config) {
+        self.config = new_config;
+    }
+
     /// Number of currently running models.
     pub fn running_count(&self) -> usize {
         self.running_models.len()
