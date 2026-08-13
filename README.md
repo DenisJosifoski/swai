@@ -30,7 +30,7 @@ no Tauri.
 ### From source (requires Rust toolchain)
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/verdioso/swai
 cd swai
 cargo build --release
 sudo cp target/release/swai /usr/local/bin/
