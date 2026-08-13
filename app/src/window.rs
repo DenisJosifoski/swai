@@ -490,7 +490,7 @@ impl MainWindow {
                 }
                 app_wa.quit();
             });
-            Self::wire_actions(&widget, app, on_quit);
+            Self::wire_actions(&widget, app, on_quit, Arc::clone(&pm));
         }
 
         // Create channels for process management messages.
@@ -596,7 +596,10 @@ impl MainWindow {
                                     }
                                 }
                             } else {
-                                c.set_state(CardState::Stopped);
+                                let is_running = pm_timeout.lock().ok().map(|pm| pm.find_running_model(&cid).is_some()).unwrap_or(false);
+                                if !is_running {
+                                    c.set_state(CardState::Stopped);
+                                }
                             }
                             c.enable_toggle();
                             c.enable_restart();
@@ -836,8 +839,17 @@ impl MainWindow {
                                     }
                                     target_card.set_starting();
 
-                                    if let Some(ref old_ka) = *ka_ref.borrow() {
-                                        old_ka.store(false, Ordering::SeqCst);
+                                    let is_switching = {
+                                        if let Ok(pm_check) = pm_ref.lock() {
+                                            pm_check.running_count() >= pm_check.max_concurrent_models()
+                                        } else {
+                                            true
+                                        }
+                                    };
+                                    if is_switching {
+                                        if let Some(ref old_ka) = *ka_ref.borrow() {
+                                            old_ka.store(false, Ordering::SeqCst);
+                                        }
                                     }
                                     let new_ka = Arc::new(AtomicBool::new(true));
                                     *ka_ref.borrow_mut() = Some(Arc::clone(&new_ka));
@@ -846,8 +858,6 @@ impl MainWindow {
                                     let pm_thread = Arc::clone(&pm_ref);
                                     let sender_thread = sender_inner.clone();
                                     let ka_thread = Arc::clone(&new_ka);
-                                    // Clone for health monitor - must be done inside closure body,
-                                    // not at capture time, because Fn closures can't move captured values.
                                     let sender_health_for_thread = sender_health_import.clone();
 
                                     std::thread::spawn(move || {
@@ -856,14 +866,21 @@ impl MainWindow {
                                                 Ok(g) => g,
                                                 Err(_) => return,
                                             };
-                                            if pm_lock.get_primary_model_id() == Some(bg_model_id.as_str()) {
+                                            if pm_lock.find_running_model(&bg_model_id).is_some() {
                                                 return;
                                             }
-                                            let running_id = pm_lock.get_primary_model_id().unwrap_or("").to_string();
-                                            if running_id.is_empty() {
+                                            let running_count = pm_lock.running_count();
+                                            let max_concurrent = pm_lock.max_concurrent_models();
+
+                                            if running_count < max_concurrent {
                                                 pm_lock.start_model(&bg_model_id)
                                             } else {
-                                                pm_lock.switch_model(&running_id, &bg_model_id)
+                                                let primary_id = pm_lock.get_primary_model_id().unwrap_or("").to_string();
+                                                if !primary_id.is_empty() {
+                                                    pm_lock.switch_model(&primary_id, &bg_model_id)
+                                                } else {
+                                                    pm_lock.start_model(&bg_model_id)
+                                                }
                                             }
                                         };
 
@@ -916,31 +933,21 @@ impl MainWindow {
 
                                     let pm_thread = Arc::clone(&pm_ref);
                                     let sender_thread = sender_inner.clone();
-                                    let proxy_thread = proxy_for_toggle.as_ref().as_ref().map(Arc::clone);
+                                    let _proxy_thread = proxy_for_toggle.as_ref().as_ref().map(Arc::clone);
+                                    let bg_model_id = model_id.clone();
 
                                     std::thread::spawn(move || {
                                         let mut pm_lock = match pm_thread.lock() {
                                             Ok(g) => g,
                                             Err(_) => return,
                                         };
-                                        if let Some(running_id) = pm_lock.get_primary_model_id().map(String::from) {
-                                            let result = pm_lock.stop_model(&running_id, false);
-                                            let is_ok = result.is_ok();
-                                            let _ = sender_thread.send(ChannelMessage::StopCompleted {
-                                                running_id,
-                                                result,
-                                            });
-
-                                            if is_ok {
-                                                if let Some(ref proxy) = proxy_thread {
-                                                    proxy.lock().unwrap_or_else(|e| {
-                                                        tracing::error!("proxy state lock poisoned");
-                                                        e.into_inner()
-                                                    }).clear();
-                                                }
-                                            }
-                                        }
-                                    });
+                                        let result = pm_lock.stop_model(&bg_model_id, false);
+                                        let _is_ok = result.is_ok();
+                                        let _ = sender_thread.send(ChannelMessage::StopCompleted {
+                                            running_id: bg_model_id,
+                                            result,
+                                         });
+                                     });
                                 }
                             });
                         }
@@ -1177,11 +1184,21 @@ impl MainWindow {
                                     if pm_lock.get_primary_model_id() == Some(bg_model_id.as_str()) {
                                         return;
                                     }
-                                    let running_id = pm_lock.get_primary_model_id().unwrap_or("").to_string();
-                                    if running_id.is_empty() {
+                                    let running_count = pm_lock.running_count();
+                                    let max_concurrent = pm_lock.max_concurrent_models();
+
+                                    if running_count < max_concurrent {
+                                        // Room under the concurrent limit — add this model
+                                        // as a new concurrent instance (does not stop others).
                                         pm_lock.start_model(&bg_model_id)
                                     } else {
-                                        pm_lock.switch_model(&running_id, &bg_model_id)
+                                        // At the limit — replace the primary model.
+                                        let primary_id = pm_lock.get_primary_model_id().unwrap_or("").to_string();
+                                        if !primary_id.is_empty() {
+                                            pm_lock.switch_model(&primary_id, &bg_model_id)
+                                        } else {
+                                            pm_lock.start_model(&bg_model_id)
+                                        }
                                     }
                                 };
 
@@ -1636,6 +1653,7 @@ impl MainWindow {
         window: &adw::ApplicationWindow,
         _app: &Application,
         on_quit: Arc<dyn Fn()>,
+        process_manager: Arc<Mutex<ProcessManager>>,
     ) {
         let quit_action = gio::SimpleAction::new("quit", None);
         quit_action.connect_activate(move |_, _| {
@@ -1669,12 +1687,13 @@ impl MainWindow {
         window.add_action(&github_action);
 
         // Preferences action.
+        let pm_prefs = Arc::clone(&process_manager);
         let preferences_action = gio::SimpleAction::new("preferences", None);
         preferences_action.connect_activate(glib::clone!(
             #[weak]
             window,
             move |_, _| {
-                Self::show_preferences_dialog(&window);
+                Self::show_preferences_dialog(&window, &pm_prefs);
             }
         ));
         window.add_action(&preferences_action);
@@ -1755,7 +1774,10 @@ impl MainWindow {
     }
 
     /// Show the preferences dialog (non-blocking).
-    fn show_preferences_dialog(parent: &adw::ApplicationWindow) {
+    fn show_preferences_dialog(
+        parent: &adw::ApplicationWindow,
+        process_manager: &Arc<Mutex<ProcessManager>>,
+    ) {
         let config = match Config::load() {
             Ok(cfg) => cfg,
             Err(e) => {
@@ -1778,6 +1800,7 @@ impl MainWindow {
             std::path::PathBuf::from("/nonexistent/config.toml")
         });
         let parent_clone = parent.clone();
+        let pm_clone = Arc::clone(process_manager);
 
         let _dialog_clone = dialog.clone();
 
@@ -1787,6 +1810,12 @@ impl MainWindow {
                 match Self::save_preferences(&values, &config_path) {
                     Ok(()) => {
                         tracing::info!("Preferences saved successfully");
+                        if let Ok(new_cfg) = Config::load() {
+                            if let Ok(mut pm) = pm_clone.lock() {
+                                pm.update_config(new_cfg);
+                                tracing::info!("Updated ProcessManager config in memory");
+                            }
+                        }
                     }
                     Err(e) => {
                         let error_dialog = MessageDialog::new(
@@ -1933,6 +1962,7 @@ impl MainWindow {
         config.preferences.enable_notifications = values.enable_notifications;
         config.preferences.notify_on_switch = values.notify_on_switch;
         config.preferences.autostart_on_login = values.autostart_on_login;
+        config.preferences.max_concurrent_models = values.max_concurrent_models;
 
         Config::validate(&config, config_path).map_err(|e| format!("Config validation error: {}", e))?;
 
