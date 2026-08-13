@@ -885,7 +885,7 @@ impl MainWindow {
                                         };
 
                                         let is_ok = result.is_ok();
-                                        let port_for_proxy = if is_ok {
+                                        let _port_for_proxy = if is_ok {
                                             pm_thread.lock()
                                                 .ok()
                                                 .and_then(|pm| pm.config().models.iter()
@@ -910,12 +910,14 @@ impl MainWindow {
 
                                         if is_ok {
                                             if let Some(ref proxy) = proxy_for_handler {
-                                                if let Some(port) = port_for_proxy {
-                                                    proxy.lock().unwrap_or_else(|e| {
-                                                        tracing::error!("proxy state lock poisoned");
-                                                        e.into_inner()
-                                                    }).set_target(port);
-                                                }
+                                                let running = pm_thread.lock()
+                                                    .ok()
+                                                    .map(|pm| pm.running_model_ports())
+                                                    .unwrap_or_default();
+                                                proxy.lock().unwrap_or_else(|e| {
+                                                    tracing::error!("proxy state lock poisoned");
+                                                    e.into_inner()
+                                                }).sync_models(running);
                                             }
                                         }
 
@@ -1008,7 +1010,7 @@ impl MainWindow {
                                     };
 
                                     let is_ok = result.is_ok();
-                                    let port_for_proxy = if is_ok {
+                                    let _port_for_proxy = if is_ok {
                                         pm_thread.lock()
                                             .ok()
                                             .and_then(|pm| pm.config().models.iter()
@@ -1033,12 +1035,14 @@ impl MainWindow {
 
                                     if is_ok {
                                         if let Some(ref proxy) = proxy_restart {
-                                            if let Some(port) = port_for_proxy {
-                                                proxy.lock().unwrap_or_else(|e| {
-                                                    tracing::error!("proxy state lock poisoned");
-                                                    e.into_inner()
-                                                }).set_target(port);
-                                            }
+                                            let running = pm_thread.lock()
+                                                .ok()
+                                                .map(|pm| pm.running_model_ports())
+                                                .unwrap_or_default();
+                                            proxy.lock().unwrap_or_else(|e| {
+                                                tracing::error!("proxy state lock poisoned");
+                                                e.into_inner()
+                                            }).sync_models(running);
                                         }
                                     }
 
@@ -1203,7 +1207,7 @@ impl MainWindow {
                                 };
 
                                 let is_ok = result.is_ok();
-                                let port_for_proxy = if is_ok {
+                                let _port_for_proxy = if is_ok {
                                     pm_thread.lock()
                                         .ok()
                                         .and_then(|pm| pm.config().models.iter()
@@ -1228,12 +1232,14 @@ impl MainWindow {
 
                                 if is_ok {
                                     if let Some(ref proxy) = proxy_for_handler {
-                                        if let Some(port) = port_for_proxy {
-                                            proxy.lock().unwrap_or_else(|e| {
-                                                tracing::error!("proxy state lock poisoned");
-                                                e.into_inner()
-                                            }).set_target(port);
-                                        }
+                                        let running = pm_thread.lock()
+                                            .ok()
+                                            .map(|pm| pm.running_model_ports())
+                                            .unwrap_or_default();
+                                        proxy.lock().unwrap_or_else(|e| {
+                                            tracing::error!("proxy state lock poisoned");
+                                            e.into_inner()
+                                        }).sync_models(running);
                                     }
                                 }
 
@@ -1340,7 +1346,7 @@ impl MainWindow {
                             };
 
                             let is_ok = result.is_ok();
-                            let port_for_proxy = if is_ok {
+                            let _port_for_proxy = if is_ok {
                                 pm_thread.lock()
                                     .ok()
                                     .and_then(|pm| pm.config().models.iter()
@@ -1365,12 +1371,14 @@ impl MainWindow {
 
                             if is_ok {
                                 if let Some(ref proxy) = proxy_restart {
-                                    if let Some(port) = port_for_proxy {
-                                        proxy.lock().unwrap_or_else(|e| {
-                                            tracing::error!("proxy state lock poisoned");
-                                            e.into_inner()
-                                        }).set_target(port);
-                                    }
+                                    let running = pm_thread.lock()
+                                        .ok()
+                                        .map(|pm| pm.running_model_ports())
+                                        .unwrap_or_default();
+                                    proxy.lock().unwrap_or_else(|e| {
+                                        tracing::error!("proxy state lock poisoned");
+                                        e.into_inner()
+                                    }).sync_models(running);
                                 }
                             }
 
@@ -2537,15 +2545,11 @@ impl MainWindow {
                         tracing::error!("auto-restart: proxy state lock poisoned");
                         e.into_inner()
                     });
-                    let port = match bg_pm.lock() {
-                        Ok(pm) => pm.config().models.iter()
-                            .find(|m| m.id == bg_model_id)
-                            .map(|m| m.port),
-                        Err(_) => None,
-                    };
-                    if let Some(port) = port {
-                        ps.set_target(port);
-                    }
+                    let running = bg_pm.lock()
+                        .ok()
+                        .map(|pm| pm.running_model_ports())
+                        .unwrap_or_default();
+                    ps.sync_models(running);
                 }
             }
         });
