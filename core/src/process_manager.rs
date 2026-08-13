@@ -132,19 +132,12 @@ impl LinuxProcessGuard {
         // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe {
             cmd.pre_exec(move || {
-                // Set PDEATHSIG so the child dies if the parent dies.
-                let ret = libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                if ret != 0 {
-                    return std::io::Result::Err(std::io::Error::last_os_error());
-                }
-
-                // Check for race: parent died after fork but before pre_exec.
-                let current_ppid = libc::getppid() as i32;
-                if current_ppid == 1 {
-                    // Parent died — the OS already sent SIGTERM via PDEATHSIG,
-                    // but we need to exit anyway since our "parent" is gone.
-                    std::process::exit(1);
-                }
+                // NOTE: PR_SET_PDEATHSIG is intentionally NOT used here.
+                // On Linux, PDEATHSIG fires when the *thread* that called
+                // fork() exits, not the process. Since model scripts are
+                // spawned from ephemeral background threads, the child
+                // would get SIGTERM'd when the thread finishes its work.
+                // Process lifecycle is managed explicitly via stop_model().
 
                 // Create a new session so we're not a child of the parent's process group.
                 let ret = libc::setsid();
@@ -169,37 +162,14 @@ impl LinuxProcessGuard {
         // Spawn the child process.
         let child = cmd.spawn().map_err(ProcessError::Spawn)?;
 
-        // Wait a bit for the child to exec (max 5s).
-        for _ in 0..50 {
-            let child_pid = Pid::from_raw(child.id() as i32);
-            let status = nix::sys::wait::waitpid(child_pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG));
-            match status {
-                Ok(nix::sys::wait::WaitStatus::StillAlive) => {
-                    std::thread::sleep(Duration::from_millis(100));
-                    continue;
-                }
-                // If waitpid returns a non-stillalive status (child exited),
-                // the script likely failed — return an error.
-                Ok(status) => {
-                    if let nix::sys::wait::WaitStatus::Exited(_, exit_code) = status {
-                        return Err(ProcessError::Spawn(std::io::Error::other(
-                            format!("child process exited with code {}", exit_code),
-                        )));
-                    }
-                    // Other statuses (signal, stopped etc.) — also indicate failure
-                    return Err(ProcessError::Spawn(std::io::Error::other(
-                        "child process exited unexpectedly",
-                    )));
-                }
-                Err(_) => break, // process gone
-            }
-        }
-
         let pid = Pid::from_raw(child.id() as i32);
 
-        // Keep the child alive — drop the Child handle but track PID.
-        // We use leak to prevent Child from being dropped (which would reap).
-        std::mem::forget(child);
+        // Spawn a background thread to reap the child process exit status
+        // when it eventually terminates, preventing <defunct> zombie processes.
+        std::thread::spawn(move || {
+            let mut child = child;
+            let _ = child.wait();
+        });
 
         Ok(Self {
             pid: Some(pid),
