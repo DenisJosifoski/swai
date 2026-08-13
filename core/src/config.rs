@@ -94,6 +94,11 @@ pub struct PreferencesConfig {
     /// via an XDG autostart `.desktop` file.
     #[serde(default = "default_autostart_on_login")]
     pub autostart_on_login: bool,
+
+    /// Maximum number of model servers that may run concurrently.
+    /// Range: 1–4. Default: 1 (legacy single-model behavior).
+    #[serde(default = "default_max_concurrent_models")]
+    pub max_concurrent_models: usize,
 }
 
 impl Default for PreferencesConfig {
@@ -103,6 +108,7 @@ impl Default for PreferencesConfig {
             enable_notifications: true,
             notify_on_switch: true,
             autostart_on_login: false,
+            max_concurrent_models: 1,
         }
     }
 }
@@ -121,6 +127,10 @@ fn default_notify_on_switch() -> bool {
 
 fn default_autostart_on_login() -> bool {
     false
+}
+
+fn default_max_concurrent_models() -> usize {
+    1
 }
 
 /// Global settings section.
@@ -282,6 +292,11 @@ impl Config {
     pub fn autostart_on_login(&self) -> bool {
         self.preferences.autostart_on_login
     }
+
+    /// Get the effective max-concurrent-models preference.
+    pub fn max_concurrent_models(&self) -> usize {
+        self.preferences.max_concurrent_models
+    }
 }
 
 /// Returns an example config.toml for first-run reference.
@@ -424,6 +439,7 @@ mod tests {
                 enable_notifications: true,
                 notify_on_switch: true,
                 autostart_on_login: false,
+                max_concurrent_models: 2,
             },
         };
 
@@ -432,6 +448,7 @@ mod tests {
 
         let deserialized: Config = toml::from_str(&serialized).unwrap();
         assert!(!deserialized.preferences.auto_follow_logs);
+        assert_eq!(deserialized.preferences.max_concurrent_models, 2);
     }
 
     #[test]
@@ -476,6 +493,7 @@ auto_restart_on_context_full = true
                 enable_notifications: false,
                 notify_on_switch: false,
                 autostart_on_login: false,
+                max_concurrent_models: 3,
             },
         };
 
@@ -502,5 +520,53 @@ auto_restart_on_context_full = true
         let config: Config = toml::from_str(toml_str).unwrap();
         assert!(config.enable_notifications());
         assert!(config.notify_on_switch());
+    }
+
+    #[test]
+    fn test_max_concurrent_models_default() {
+        let config = Config {
+            schema_version: 1,
+            models: vec![],
+            global: GlobalSettings::default(),
+            preferences: PreferencesConfig::default(),
+        };
+        assert_eq!(config.max_concurrent_models(), 1);
+    }
+
+    #[test]
+    fn test_max_concurrent_models_serialization() {
+        let config = Config {
+            schema_version: 1,
+            models: vec![],
+            global: GlobalSettings::default(),
+            preferences: PreferencesConfig {
+                auto_follow_logs: true,
+                enable_notifications: true,
+                notify_on_switch: true,
+                autostart_on_login: false,
+                max_concurrent_models: 3,
+            },
+        };
+
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        assert!(serialized.contains("max_concurrent_models"));
+
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.max_concurrent_models(), 3);
+    }
+
+    #[test]
+    fn test_max_concurrent_models_missing_uses_default() {
+        // When max_concurrent_models is absent from TOML, default should be 1.
+        let toml_str = r#"
+schema_version = 1
+
+[global]
+log_dir = ""
+proxy_port = 9080
+auto_restart_on_context_full = true
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.max_concurrent_models(), 1);
     }
 }

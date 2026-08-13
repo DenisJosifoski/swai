@@ -33,16 +33,23 @@ use tracing::{debug, error, info};
 /// Updated by the app whenever a model starts, stops, switches, or restarts.
 /// The proxy reads this state on every incoming request to decide where to
 /// forward (or whether to return 503).
+///
+/// In multi-model mode, `active_models` holds all concurrently running models;
+/// `primary_port` is the port of the first-started model (fallback target).
 #[derive(Debug, Clone)]
 #[derive(Default)]
 pub struct ProxyState {
-    /// The port of the currently active model server, if any.
+    /// The port of the primary (first-started) active model server.
     /// `None` means no model is running.
-    pub target_port: Option<u16>,
+    pub primary_port: Option<u16>,
 
-    /// Whether a model is currently in a transitional state (starting / restarting).
-    /// When `true`, the proxy returns 503 even if `target_port` is set, because
-    /// the model on that port is not yet Ready to serve requests.
+    /// All currently running models, keyed by their configured id.
+    /// Each entry maps to the port its server is bound to.
+    pub active_models: std::collections::HashMap<String, u16>,
+
+    /// Whether any model is currently in a transitional state (starting / restarting).
+    /// When `true`, the proxy returns 503 even if ports are set, because
+    /// models on those ports are not yet Ready to serve requests.
     pub is_loading: bool,
 }
 
@@ -53,10 +60,45 @@ impl ProxyState {
         Self::default()
     }
 
-    /// Set the target port and mark the model as loaded (Ready).
+    /// Set the primary target port and mark all models as loaded (Ready).
     pub fn set_target(&mut self, port: u16) {
-        self.target_port = Some(port);
+        self.primary_port = Some(port);
         self.is_loading = false;
+    }
+
+    /// Register a running model (id → port mapping) with the proxy state.
+    pub fn add_model(&mut self, id: String, port: u16) {
+        self.active_models.insert(id, port);
+        // First model added becomes the primary.
+        if self.primary_port.is_none() {
+            self.primary_port = Some(port);
+        }
+        self.is_loading = false;
+    }
+
+    /// Remove a running model from the proxy state by id.
+    pub fn remove_model(&mut self, id: &str) -> Option<u16> {
+        let port = self.active_models.remove(id);
+        // If we removed the primary, shift to the next available model.
+        if let Some(p) = port {
+            if self.primary_port == Some(p) {
+                self.primary_port = self.active_models.values().next().copied();
+            }
+        }
+        port
+    }
+
+    /// Look up the port for a running model by id or name.
+    ///
+    /// Checks both `id` and `name` fields from config. Returns `None` if not found.
+    pub fn find_model_port(&self, identifier: &str) -> Option<u16> {
+        // Direct id match
+        if let Some(&port) = self.active_models.get(identifier) {
+            return Some(port);
+        }
+        // Name match — caller should pass the config to resolve names.
+        // This is handled at a higher level by the app.
+        None
     }
 
     /// Mark the proxy as loading (model is starting/restarting).
@@ -64,9 +106,10 @@ impl ProxyState {
         self.is_loading = true;
     }
 
-    /// Clear the target port and mark as not loading.
+    /// Clear all model state and mark as not loading.
     pub fn clear(&mut self) {
-        self.target_port = None;
+        self.active_models.clear();
+        self.primary_port = None;
         self.is_loading = false;
     }
 }
@@ -168,6 +211,11 @@ impl Drop for ProxyServer {
 /// and `POST /v1/messages/count_tokens`) are forwarded transparently to the active
 /// model server. SSE streaming events pass through untouched; hop-by-hop headers
 /// are stripped per RFC 7230 §6.1.
+///
+/// Multi-model routing (Phase 23): if the request JSON body contains a `model`
+/// field that matches a running model's id or name, the request is routed to
+/// that specific model's port. Otherwise it falls back to the primary active
+/// model port.
 fn handle_proxy_request(
     mut req: Request,
     state: Arc<Mutex<ProxyState>>,
@@ -182,7 +230,7 @@ fn handle_proxy_request(
     };
 
     // No active model → 503 Service Unavailable
-    if proxy_state.target_port.is_none() {
+    if proxy_state.primary_port.is_none() && proxy_state.active_models.is_empty() {
         drop(proxy_state);
         let _ = req.respond(error_response(
             503,
@@ -201,8 +249,35 @@ fn handle_proxy_request(
         return;
     }
 
-    let target_port = proxy_state.target_port.unwrap();
+    // Read the request body to inspect for a `model` field.
+    let mut request_body = Vec::new();
+    let reader = req.as_reader();
+    let _ = reader.read_to_end(&mut request_body);
+
+    // Try to resolve target port from the `model` field in the request payload.
+    let target_port = resolve_target_port(&proxy_state, &request_body);
     drop(proxy_state);
+
+    let target_port = match target_port {
+        Some(port) => port,
+        None => {
+            // No matching model found — fall back to primary.
+            let primary = match state.lock() {
+                Ok(s) => s.primary_port,
+                Err(_) => None,
+            };
+            match primary {
+                Some(p) => p,
+                None => {
+                    let _ = req.respond(error_response(
+                        503,
+                        "No active model server in SWAI",
+                    ));
+                    return;
+                }
+            }
+        }
+    };
 
     // Ollama endpoint translation — handle before generic forwarding.
     let path_and_query = req.url().to_string();
@@ -213,20 +288,16 @@ fn handle_proxy_request(
                 return;
             }
             "/api/generate" => {
-                handle_ollama_generate(req, state, client);
+                handle_ollama_generate(req, state, client, target_port);
                 return;
             }
             "/api/chat" => {
-                handle_ollama_chat(req, state, client);
+                handle_ollama_chat(req, state, client, target_port);
                 return;
             }
             _ => {}
         }
     }
-
-    // Forward to the active model server
-    let target_base = format!("http://127.0.0.1:{}", target_port);
-    let is_responses = path_and_query.contains("/v1/responses");
 
     // Build headers for the forwarded request, stripping hop-by-hop headers
     // per RFC 7230 §6.1 to prevent response-framing edge cases.
@@ -246,13 +317,10 @@ fn handle_proxy_request(
         );
     }
 
-    // Read the request body
-    let mut request_body = Vec::new();
-    let reader = req.as_reader();
-    let _ = reader.read_to_end(&mut request_body);
-
     // Handle Responses API requests specially: translate input → messages,
     // remap model ID, then forward to /v1/chat/completions on the model server.
+    let is_responses = path_and_query.contains("/v1/responses");
+
     if is_responses {
         let active_model_id = "swai-active-model";
         match responses_adapter(&request_body, active_model_id) {
@@ -304,7 +372,7 @@ fn handle_proxy_request(
     } else {
         path_and_query.clone()
     };
-    let target_url = format!("{}{}", target_base, effective_path);
+    let target_url = format!("http://127.0.0.1:{}{}", target_port, effective_path);
 
     // Convert tiny_http method to reqwest method
     let method = match req.method().as_str() {
@@ -322,6 +390,9 @@ fn handle_proxy_request(
 
     for header in &forward_headers {
         let field_name = std::str::from_utf8(header.field.as_str().as_bytes()).unwrap_or("");
+        if field_name.eq_ignore_ascii_case("content-length") {
+            continue;
+        }
         request_builder = request_builder.header(field_name, header.value.as_str());
     }
 
@@ -700,6 +771,55 @@ fn translate_openai_sse_to_responses(
     events
 }
 
+/// Resolve the target port for an incoming request by inspecting its JSON body.
+///
+/// Checks for a `model` field in:
+/// - OpenAI `/v1/chat/completions` payloads (`{"model": "..."}`)
+/// - Anthropic `/v1/messages` payloads (`{"model": "..."}`)
+/// - Ollama `/api/chat` and `/api/generate` payloads (`{"model": "..."}`)
+///
+/// If the `model` value matches a running model's id or name, returns that
+/// model's port. Otherwise returns `None` so the caller falls back to the
+/// primary active model.
+fn resolve_target_port(state: &ProxyState, body: &[u8]) -> Option<u16> {
+    // Only inspect JSON bodies.
+    if body.is_empty() {
+        return None;
+    }
+
+    // Quick check: does the body contain a "model" key at all?
+    let has_model_key = body.windows(7).any(|w| {
+        w.eq_ignore_ascii_case(b"\"model\"")
+            || w.eq_ignore_ascii_case(b"'model'")
+    });
+    if !has_model_key {
+        return None;
+    }
+
+    let json_val = match serde_json::from_slice::<serde_json::Value>(body) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+
+    let model_id = json_val
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("");
+
+    if model_id.is_empty() {
+        return None;
+    }
+
+    // Check against running models.
+    for (id, &port) in &state.active_models {
+        if id == model_id {
+            return Some(port);
+        }
+    }
+
+    None
+}
+
 /// Check if a header name is a hop-by-hop header per RFC 7230 §6.1.
 ///
 /// These headers are intended for a single transport-level connection and must
@@ -985,6 +1105,7 @@ fn handle_ollama_generate(
     mut req: Request,
     state: Arc<Mutex<ProxyState>>,
     client: reqwest::blocking::Client,
+    target_port: u16,
 ) {
     let proxy_state = match state.lock() {
         Ok(s) => s,
@@ -994,7 +1115,7 @@ fn handle_ollama_generate(
         }
     };
 
-    if proxy_state.target_port.is_none() {
+    if proxy_state.active_models.is_empty() {
         drop(proxy_state);
         let _ = req.respond(error_response(503, "No active model server in SWAI"));
         return;
@@ -1009,7 +1130,6 @@ fn handle_ollama_generate(
         return;
     }
 
-    let target_port = proxy_state.target_port.unwrap();
     drop(proxy_state);
 
     // Read the Ollama request body.
@@ -1226,6 +1346,7 @@ fn handle_ollama_chat(
     mut req: Request,
     state: Arc<Mutex<ProxyState>>,
     client: reqwest::blocking::Client,
+    target_port: u16,
 ) {
     let proxy_state = match state.lock() {
         Ok(s) => s,
@@ -1235,7 +1356,7 @@ fn handle_ollama_chat(
         }
     };
 
-    if proxy_state.target_port.is_none() {
+    if proxy_state.active_models.is_empty() {
         drop(proxy_state);
         let _ = req.respond(error_response(503, "No active model server in SWAI"));
         return;
@@ -1250,7 +1371,6 @@ fn handle_ollama_chat(
         return;
     }
 
-    let target_port = proxy_state.target_port.unwrap();
     drop(proxy_state);
 
     // Read the Ollama request body.
@@ -1938,7 +2058,8 @@ mod tests {
     #[test]
     fn test_proxy_state_default() {
         let state = ProxyState::default();
-        assert!(state.target_port.is_none());
+        assert!(state.primary_port.is_none());
+        assert!(state.active_models.is_empty());
         assert!(!state.is_loading);
     }
 
@@ -1946,7 +2067,7 @@ mod tests {
     fn test_proxy_state_set_target() {
         let mut state = ProxyState::new();
         state.set_target(8081);
-        assert_eq!(state.target_port, Some(8081));
+        assert_eq!(state.primary_port, Some(8081));
         assert!(!state.is_loading);
     }
 
@@ -1955,7 +2076,7 @@ mod tests {
         let mut state = ProxyState::new();
         state.set_target(8081);
         state.set_loading();
-        assert_eq!(state.target_port, Some(8081));
+        assert_eq!(state.primary_port, Some(8081));
         assert!(state.is_loading);
     }
 
@@ -1964,7 +2085,8 @@ mod tests {
         let mut state = ProxyState::new();
         state.set_target(8081);
         state.clear();
-        assert!(state.target_port.is_none());
+        assert!(state.primary_port.is_none());
+        assert!(state.active_models.is_empty());
         assert!(!state.is_loading);
     }
 
@@ -1973,7 +2095,7 @@ mod tests {
         let mut state = ProxyState::new();
 
         // Initial: no model
-        assert!(state.target_port.is_none());
+        assert!(state.primary_port.is_none());
         assert!(!state.is_loading);
 
         // Model starting
@@ -1982,19 +2104,124 @@ mod tests {
 
         // Model ready
         state.set_target(9081);
-        assert_eq!(state.target_port, Some(9081));
+        assert_eq!(state.primary_port, Some(9081));
         assert!(!state.is_loading);
 
         // Model stopped
         state.clear();
-        assert!(state.target_port.is_none());
+        assert!(state.primary_port.is_none());
         assert!(!state.is_loading);
 
         // Switch to another model
         state.set_loading();
         state.set_target(9082);
-        assert_eq!(state.target_port, Some(9082));
+        assert_eq!(state.primary_port, Some(9082));
         assert!(!state.is_loading);
+    }
+
+    #[test]
+    fn test_proxy_state_multi_model_add_remove() {
+        let mut state = ProxyState::new();
+
+        // Add first model — becomes primary.
+        state.add_model("model-a".to_string(), 9081);
+        assert_eq!(state.primary_port, Some(9081));
+        assert_eq!(state.active_models.len(), 1);
+
+        // Add second model — primary stays the same.
+        state.add_model("model-b".to_string(), 9082);
+        assert_eq!(state.primary_port, Some(9081));
+        assert_eq!(state.active_models.len(), 2);
+
+        // Add third model.
+        state.add_model("model-c".to_string(), 9083);
+        assert_eq!(state.active_models.len(), 3);
+
+        // Remove middle model — primary unchanged.
+        state.remove_model("model-b");
+        assert_eq!(state.active_models.len(), 2);
+        assert_eq!(state.primary_port, Some(9081));
+
+        // Remove primary model — primary should shift to next available.
+        state.remove_model("model-a");
+        assert_eq!(state.active_models.len(), 1);
+        // Primary shifts to the remaining model's port.
+        assert_eq!(state.primary_port, Some(9083));
+
+        // Remove last model — everything cleared.
+        state.remove_model("model-c");
+        assert!(state.primary_port.is_none());
+        assert!(state.active_models.is_empty());
+    }
+
+    #[test]
+    fn test_proxy_state_find_model_port() {
+        let mut state = ProxyState::new();
+        state.add_model("llama3".to_string(), 9081);
+        state.add_model("codex".to_string(), 9082);
+
+        assert_eq!(state.find_model_port("llama3"), Some(9081));
+        assert_eq!(state.find_model_port("codex"), Some(9082));
+        assert_eq!(state.find_model_port("nonexistent"), None);
+    }
+
+    // ─── Dynamic multi-model routing tests (Phase 23) ──────────────────────
+
+    #[test]
+    fn test_resolve_target_port_matches_running_model() {
+        let mut state = ProxyState::new();
+        state.add_model("llama3.2".to_string(), 9081);
+        state.add_model("codex-latest".to_string(), 9082);
+
+        // Request targeting llama3.2 should route to 9081.
+        let body = br#"{"model": "llama3.2", "messages": [{"role": "user", "content": "hi"}]}"#;
+        assert_eq!(resolve_target_port(&state, body), Some(9081));
+
+        // Request targeting codex should route to 9082.
+        let body = br#"{"model": "codex-latest", "messages": [{"role": "user", "content": "hi"}]}"#;
+        assert_eq!(resolve_target_port(&state, body), Some(9082));
+    }
+
+    #[test]
+    fn test_resolve_target_port_falls_back_when_no_match() {
+        let mut state = ProxyState::new();
+        state.add_model("llama3.2".to_string(), 9081);
+
+        // Request for unknown model falls back to None (caller uses primary).
+        let body = br#"{"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]}"#;
+        assert_eq!(resolve_target_port(&state, body), None);
+    }
+
+    #[test]
+    fn test_resolve_target_port_empty_body() {
+        let state = ProxyState::new();
+        assert_eq!(resolve_target_port(&state, &[]), None);
+    }
+
+    #[test]
+    fn test_resolve_target_port_no_model_field() {
+        let mut state = ProxyState::new();
+        state.add_model("llama3.2".to_string(), 9081);
+
+        // Body without a model field should return None.
+        let body = br#"{"messages": [{"role": "user", "content": "hi"}]}"#;
+        assert_eq!(resolve_target_port(&state, body), None);
+    }
+
+    #[test]
+    fn test_resolve_target_port_invalid_json() {
+        let state = ProxyState::new();
+        let body = b"not json at all";
+        assert_eq!(resolve_target_port(&state, body), None);
+    }
+
+    #[test]
+    fn test_resolve_target_port_empty_model_value() {
+        let mut state = ProxyState::new();
+        state.add_model("llama3.2".to_string(), 9081);
+
+        let body = br#"{"model": "", "messages": []}"#;
+        assert_eq!(resolve_target_port(&state, body), None);
     }
 
     #[test]

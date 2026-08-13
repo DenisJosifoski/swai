@@ -235,7 +235,7 @@ impl ManageModelsDialog {
                     return;
                 }
             };
-            pm.get_running_model_id() == Some(id)
+            pm.find_running_model(id).is_some()
         };
 
         if is_running {

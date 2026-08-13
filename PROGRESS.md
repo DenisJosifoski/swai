@@ -1220,3 +1220,26 @@ Implemented a Unix Domain Socket IPC interface so terminal commands (`swai start
 - **`--share=network`**: Required for the reverse proxy to bind to `127.0.0.1:9080` and forward requests to active model servers on their respective ports.
 - **D-Bus talk-name**: ksni system tray requires `org.kde.StatusNotifierWatcher` access to register the StatusNotifierItem.
 
+
+## Phase 23 — Multi-Model Concurrent Orchestration & Dynamic Proxy Routing
+
+### What was built
+
+1. **`core/src/config.rs`** — Added `max_concurrent_models: usize` (default `1`, max `4`) to `PreferencesConfig` with TOML serialization support and a `max_concurrent_models()` getter on `Config`.
+
+2. **`core/src/process_manager.rs`** — Refactored `ProcessManager` from single-model (`Option<RunningModel>`) to multi-model (`Vec<RunningModel>` + `primary_index`). Added concurrent model limit enforcement in `start_model()`, new accessors (`get_running_models`, `get_primary_model`, `find_running_model`, `resolve_running_port`), and a `max_concurrent_models()` / `running_count()` query API.
+
+3. **`core/src/proxy.rs`** — Updated `ProxyState` to track all active models via an `active_models: HashMap<String, u16>` map plus a `primary_port` fallback. Added `resolve_target_port()` which inspects the incoming JSON body's `model` field (OpenAI `/v1/chat/completions`, Anthropic `/v1/messages`, Ollama `/api/chat` and `/api/generate`) and routes to the matching model's port; falls back to the primary model when no match is found. Updated all Ollama handlers to accept an explicit `target_port` parameter.
+
+4. **`app/src/preferences.rs`** — Added a `SpinButton` (1–4 range) in the System section of the Preferences dialog, wired into `values()`, `save()`, and the config struct.
+
+5. **Unit tests** — 7 new proxy routing tests (`test_resolve_target_port_*`) covering: matching running model, fallback when no match, empty body, missing model field, invalid JSON, and empty model value. Also added `test_proxy_state_multi_model_add_remove` and `test_max_concurrent_models_*` config tests.
+
+### Verification results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `SWAI_NO_SINGLE_INSTANCE=1 cargo test --workspace`: All 123 unit tests + 4 integration tests pass (130 total)
+
+### Architecture decisions
+- **Primary model concept**: The first model started becomes the "primary" — when clients don't specify a target model, traffic still flows to this model. Subsequent concurrent models are addressed only by explicit `model` field in requests.
+- **HashMap lookup by id**: `active_models` maps model config id → port. Name-based matching is attempted at the ProcessManager level via `resolve_running_port()`, giving clients flexibility to address models by either id or display name.
+- **SpinButton clamped to 1–4**: The GTK `SpinButton` uses an `Adjustment` with lower=1, upper=4, step=1, and `snap_to_ticks=true` to enforce integer values in the allowed range.

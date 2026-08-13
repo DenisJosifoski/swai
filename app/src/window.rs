@@ -753,7 +753,7 @@ impl MainWindow {
                                     Err(_) => return,
                                 };
 
-                                if let Some(running_id) = pm_lock.get_running_model_id() {
+                                if let Some(running_id) = pm_lock.get_primary_model_id() {
                                     let running_id = running_id.to_string();
                                     if running_id == bg_target_id {
                                         return;
@@ -856,10 +856,10 @@ impl MainWindow {
                                                 Ok(g) => g,
                                                 Err(_) => return,
                                             };
-                                            if pm_lock.get_running_model_id() == Some(bg_model_id.as_str()) {
+                                            if pm_lock.get_primary_model_id() == Some(bg_model_id.as_str()) {
                                                 return;
                                             }
-                                            let running_id = pm_lock.get_running_model_id().unwrap_or("").to_string();
+                                            let running_id = pm_lock.get_primary_model_id().unwrap_or("").to_string();
                                             if running_id.is_empty() {
                                                 pm_lock.start_model(&bg_model_id)
                                             } else {
@@ -923,7 +923,7 @@ impl MainWindow {
                                             Ok(g) => g,
                                             Err(_) => return,
                                         };
-                                        if let Some(running_id) = pm_lock.get_running_model_id().map(String::from) {
+                                        if let Some(running_id) = pm_lock.get_primary_model_id().map(String::from) {
                                             let result = pm_lock.stop_model(&running_id, false);
                                             let is_ok = result.is_ok();
                                             let _ = sender_thread.send(ChannelMessage::StopCompleted {
@@ -992,7 +992,7 @@ impl MainWindow {
                                             Err(_) => return,
                                         };
 
-                                        if pm_lock.get_running_model_id() == Some(bg_model_id.as_str()) {
+                                        if pm_lock.get_primary_model_id() == Some(bg_model_id.as_str()) {
                                             let _ = pm_lock.stop_model(&bg_model_id, false);
                                             std::thread::sleep(std::time::Duration::from_millis(500));
                                         }
@@ -1174,10 +1174,10 @@ impl MainWindow {
                                         Ok(g) => g,
                                         Err(_) => return,
                                     };
-                                    if pm_lock.get_running_model_id() == Some(bg_model_id.as_str()) {
+                                    if pm_lock.get_primary_model_id() == Some(bg_model_id.as_str()) {
                                         return;
                                     }
-                                    let running_id = pm_lock.get_running_model_id().unwrap_or("").to_string();
+                                    let running_id = pm_lock.get_primary_model_id().unwrap_or("").to_string();
                                     if running_id.is_empty() {
                                         pm_lock.start_model(&bg_model_id)
                                     } else {
@@ -1241,7 +1241,7 @@ impl MainWindow {
                                     Ok(g) => g,
                                     Err(_) => return,
                                 };
-                                if let Some(running_id) = pm_lock.get_running_model_id().map(String::from) {
+                                if let Some(running_id) = pm_lock.get_primary_model_id().map(String::from) {
                                     let result = pm_lock.stop_model(&running_id, false);
                                     let is_ok = result.is_ok();
                                     let _ = sender_thread.send(ChannelMessage::StopCompleted {
@@ -1314,7 +1314,7 @@ impl MainWindow {
                                     Err(_) => return,
                                 };
 
-                                if pm_lock.get_running_model_id() == Some(bg_model_id.as_str()) {
+                                if pm_lock.get_primary_model_id() == Some(bg_model_id.as_str()) {
                                     let _ = pm_lock.stop_model(&bg_model_id, false);
                                     std::thread::sleep(std::time::Duration::from_millis(500));
                                 }
@@ -2220,19 +2220,24 @@ impl MainWindow {
 
                 let ready_ports: Vec<(String, u16)> = match pm.lock() {
                     Ok(pm_lock) => pm_lock
-                        .get_running_model()
-                        .map(|rm| {
-                            let id = rm.id.clone();
-                            let port = pm_lock
-                                .config()
-                                .models
-                                .iter()
-                                .find(|m| m.id == id)
-                                .map(|m| m.port)
-                                .unwrap_or(0);
-                            vec![(id, port)]
+                        .get_running_models()
+                        .iter()
+                        .filter_map(|rm| {
+                            if rm.state == ModelState::Ready {
+                                let id = rm.id.clone();
+                                let port = pm_lock
+                                    .config()
+                                    .models
+                                    .iter()
+                                    .find(|m| m.id == id)
+                                    .map(|m| m.port)
+                                    .unwrap_or(0);
+                                Some((id, port))
+                            } else {
+                                None
+                            }
                         })
-                        .unwrap_or_default(),
+                        .collect(),
                     Err(_) => continue,
                 };
 
@@ -2472,7 +2477,7 @@ impl MainWindow {
                     Err(_) => return,
                 };
 
-                if pm_lock.get_running_model_id() == Some(bg_model_id.as_str()) {
+                if pm_lock.get_primary_model_id() == Some(bg_model_id.as_str()) {
                     let _ = pm_lock.stop_model(&bg_model_id, true);
                     std::thread::sleep(std::time::Duration::from_millis(1500));
                 }

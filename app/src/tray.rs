@@ -89,7 +89,7 @@ impl SwaiTray {
     fn active_model_name(&self) -> String {
         match self.process_manager.lock() {
             Ok(pm) => pm
-                .get_running_model_id()
+                .get_primary_model_id()
                 .and_then(|id| {
                     self.config
                         .models
