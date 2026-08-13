@@ -76,6 +76,24 @@ impl ProxyState {
         self.is_loading = false;
     }
 
+    /// Sync the proxy state with the full set of running models from the
+    /// ProcessManager. Replaces the entire `active_models` map and recomputes
+    /// `primary_port` from the first entry.
+    ///
+    /// Call this after any model start/stop to keep the proxy state consistent
+    /// for dynamic multi-model routing.
+    pub fn sync_models(&mut self, models: Vec<(String, u16)>) {
+        self.active_models.clear();
+        self.primary_port = None;
+        for (id, port) in models {
+            self.active_models.insert(id.clone(), port);
+            if self.primary_port.is_none() {
+                self.primary_port = Some(port);
+            }
+        }
+        self.is_loading = false;
+    }
+
     /// Remove a running model from the proxy state by id.
     pub fn remove_model(&mut self, id: &str) -> Option<u16> {
         let port = self.active_models.remove(id);

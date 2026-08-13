@@ -666,6 +666,29 @@ impl ProcessManager {
         self.running_models.iter().find(|m| m.id == id)
     }
 
+    /// Get all running model IDs.
+    pub fn running_model_ids(&self) -> Vec<String> {
+        self.running_models.iter().map(|m| m.id.clone()).collect()
+    }
+
+    /// Build a map of all running model IDs to their configured ports.
+    ///
+    /// Used by the proxy to register all concurrently running models so that
+    /// dynamic routing can dispatch requests to the correct model based on the
+    /// `model` field in incoming requests.
+    pub fn running_model_ports(&self) -> Vec<(String, u16)> {
+        self.running_models
+            .iter()
+            .filter_map(|m| {
+                self.config
+                    .models
+                    .iter()
+                    .find(|c| c.id == m.id)
+                    .map(|c| (m.id.clone(), c.port))
+            })
+            .collect()
+    }
+
     /// Get the port for a running model by id.
     pub fn get_port_for_model(&self, id: &str) -> Option<u16> {
         self.config
