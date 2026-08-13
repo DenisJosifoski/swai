@@ -1,6 +1,8 @@
 # SWAI (SWitch AI) — Native Linux Model Switcher & Gateway
 
-![SWAI Main Window](https://github.com/verdioso/swai/raw/main/swai.png)
+<p align="center">
+  <img src="https://github.com/verdioso/swai/raw/main/swai.png" alt="SWAI App Icon" width="160" />
+</p>
 
 A native Linux desktop app for starting, stopping, and monitoring local
 llama.cpp model servers, one at a time, from bash launch scripts. Written
