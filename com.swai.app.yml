@@ -1,0 +1,34 @@
+app-id: com.swai.app
+runtime: org.gnome.Platform
+runtime-version: '46'
+sdk: org.gnome.Sdk
+command: swai
+
+finish-args:
+  # X11 + Wayland support
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  # D-Bus (ksni system tray)
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # Network sockets — reverse proxy on 127.0.0.1:9080
+  - --share=network
+  # Host filesystem access — spawn local model scripts anywhere on disk
+  - --filesystem=host
+
+modules:
+  # ---- SWAI source (Rust workspace) ----
+  - name: swai
+    buildsystem: simple
+    build-commands:
+      # Build the app crate (swai-core is a path dependency in the workspace)
+      - cargo build --release --package swai
+      # Install binary
+      - install -Dm755 target/release/swai /app/bin/swai
+      # Install 512x512 icon
+      - install -Dm644 swai.png /app/share/icons/hicolor/512x512/apps/com.swai.app.png
+      # Install AppStream metainfo
+      - install -Dm644 com.swai.app.metainfo.xml /app/share/metainfo/com.swai.app.metainfo.xml
+    sources:
+      - type: dir
+        path: .

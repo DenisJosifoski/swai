@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.swai.app</id>
+
+  <name>SWAI (SWitch AI)</name>
+  <summary>Native Linux local LLM model switcher &amp; reverse proxy gateway</summary>
+
+  <developer_name>Denis Josifoski</developer_name>
+
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+
+  <description>
+    <p>
+      SWAI is a native Linux desktop application for starting, stopping, and
+      monitoring local llama.cpp model servers — one at a time — from bash
+      launch scripts. Written entirely in Rust with a GTK4 + Libadwaita
+      native shell UI: no webview, no Electron, no Tauri.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Start / Stop / Switch local llama.cpp model servers from a native GTK4 window with model cards.</li>
+      <li>System tray icon with quick-switch menu, window visibility toggle, and clean quit — works natively on KDE Plasma.</li>
+      <li>Context display — polls /slots to show token usage per model card, color-coded when approaching context limits.</li>
+      <li>Auto-restart when context is full (configurable).</li>
+      <li>Reverse proxy on a fixed local port so IDE/CLI clients never need reconfiguration when switching models.</li>
+      <li>Third-Party Inference Gateway — connect Claude Desktop and other inference clients via http://127.0.0.1:9080 with Anthropic Messages API support.</li>
+      <li>Live log viewer with auto-tail, clear, and export.</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">com.swai.app.desktop</launchable>
+
+  <url type="homepage">https://github.com/verdioso/swai</url>
+  <url type="bugtracker">https://github.com/verdioso/swai/issues</url>
+
+  <provides>
+    <binary>swai</binary>
+  </provides>
+
+  <releases>
+    <release version="0.1.2" date="2026-08-13" type="stable">
+      <description>
+        <p>Flathub packaging support, AppStream metadata integration, and interactive Log Viewer controls (Close, Clear, Export).</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1" />
+
+  <categories>
+    <category>Utility</category>
+    <category>Development</category>
+  </categories>
+
+  <keywords>
+    <keyword>llama.cpp</keyword>
+    <keyword>LLM</keyword>
+    <keyword>local AI</keyword>
+    <keyword>model switcher</keyword>
+    <keyword>reverse proxy</keyword>
+    <keyword>Claude Desktop</keyword>
+    <keyword>OpenAI</keyword>
+    <keyword>Ollama</keyword>
+    <keyword>GTK4</keyword>
+  </keywords>
+
+  <screenshots>
+    <screenshot type="default">
+      <image type="source">https://github.com/verdioso/swai/raw/main/swai.png</image>
+      <caption>SWAI main window showing model cards with ON/OFF toggles and context progress bars</caption>
+    </screenshot>
+  </screenshots>
+
+  <developer id="DenisJosifoski">
+    <name>Denis Josifoski</name>
+  </developer>
+
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </recommends>
+
+  <requires>
+    <internet>long-run</internet>
+  </requires>
+</component>
