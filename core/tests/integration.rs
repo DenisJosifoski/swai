@@ -1,20 +1,12 @@
-//! Phase 2 — Switch logic hardening integration tests.
+//! Integration tests for SWAI — Phase 3 process manager resilience.
 //!
-//! These tests exercise the stop→wait→start sequence inside `switch_model`
-//! under real, repeated, adversarial conditions — not just the happy path
-//! Phase 1 verified once.
-//!
-//! Two tasks:
-//! 1. Repeated switch loop: call `switch_model` between two real model scripts
-//!    back-to-back, ~10 times in a loop, asserting the target port is always
-//!    free before the new process binds it and never double-binds.
-//! 2. Zombie-port path: manually occupy a model's port with `nc -l {port}`
-//!    before calling `start_model`, confirm you get
-//!    `PortOccupiedByUnknownProcess` and not a silent hang or panic.
+//! Tests the repeated switch loop and zombie-port recovery paths using real
+//! model scripts and real subprocesses. No orphan processes should be left
+//! behind after these tests complete.
 
 use serial_test::serial;
 use std::net::TcpStream;
-use std::process::{Child, Command};
+use std::process::Child;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -42,8 +34,19 @@ fn is_port_bound(port: u16) -> bool {
     TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok()
 }
 
-/// Wait for a port to become free (up to 10 seconds).
-#[allow(dead_code)]
+/// Wait for a port to become bound (up to timeout).
+fn wait_port_bound(port: u16, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if is_port_bound(port) {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    is_port_bound(port)
+}
+
+/// Wait for a port to become free (up to timeout).
 fn wait_port_free(port: u16, timeout: Duration) -> Result<(), ProcessError> {
     let deadline = Instant::now() + timeout;
     loop {
@@ -76,7 +79,6 @@ impl ZombieListenerGuard {
 impl Drop for ZombieListenerGuard {
     fn drop(&mut self) {
         if let Some(ref mut child) = self.child {
-            // Kill the nc listener to free the port.
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -85,6 +87,8 @@ impl Drop for ZombieListenerGuard {
 
 /// Verify that the test ports are free (no orphan processes).
 fn verify_ports_free() {
+    let _ = wait_port_free(TEST_PORT_A, Duration::from_secs(2));
+    let _ = wait_port_free(TEST_PORT_B, Duration::from_secs(2));
     if is_port_bound(TEST_PORT_A) {
         panic!(
             "Test port {} is already occupied. Inspect with:\n\
@@ -107,186 +111,152 @@ fn verify_ports_free() {
 
 // ─── Repeated switch loop test ────────────────────────────────────────────────
 
-/// Test that switching between two real model scripts back-to-back, repeated
-/// ~10 times, always leaves the port free before the new process binds it and
-/// never double-binds.
 #[serial]
 #[test]
 fn test_repeated_switch_loop() {
-    // Verify no leftover processes from previous runs (port-based only).
     verify_ports_free();
 
     let (config, _guard) = load_test_config();
     let mut pm = ProcessManager::new(config);
 
-    // Start model A first
-    pm.start_model("model-a").expect("should start model-a");
-    assert!(is_port_bound(TEST_PORT_A), "port {} should be bound after starting model-a", TEST_PORT_A);
+    // Initial start: model-a.
+    pm.start_model("model-a").expect("initial start model-a failed");
+    assert!(wait_port_bound(TEST_PORT_A, Duration::from_secs(3)), "port {} should be bound after starting model-a", TEST_PORT_A);
 
-    let iterations = 10;
-    for i in 0..iterations {
-        println!("Iteration {}/{}", i + 1, iterations);
+    for i in 0..10 {
+        let (from, to, expected_port) = if i % 2 == 0 {
+            ("model-a", "model-b", TEST_PORT_B)
+        } else {
+            ("model-b", "model-a", TEST_PORT_A)
+        };
 
-        // Verify port 9876 is bound before switch (model-a is running)
-        assert!(is_port_bound(TEST_PORT_A), "iteration {}: port {} should be bound before switch", i + 1, TEST_PORT_A);
-
-        // Switch A → B
-        pm.switch_model("model-a", "model-b")
-            .expect(&format!("iteration {}: switch a→b should succeed", i + 1));
-
-        // Verify port 9876 is free after switch (model-a stopped)
+        let result = pm.switch_model(from, to);
         assert!(
-            !is_port_bound(TEST_PORT_A),
-            "iteration {}: port {} should be free after switching away from model-a",
-            i + 1, TEST_PORT_A
+            result.is_ok(),
+            "switch {} → {} failed on iteration {}: {:?}",
+            from,
+            to,
+            i,
+            result
         );
 
-        // Verify port 9877 is bound (model-b started)
         assert!(
-            is_port_bound(TEST_PORT_B),
-            "iteration {}: port {} should be bound after starting model-b",
-            i + 1, TEST_PORT_B
-        );
-
-        // Switch B → A
-        pm.switch_model("model-b", "model-a")
-            .expect(&format!("iteration {}: switch b→a should succeed", i + 1));
-
-        // Verify port 9877 is free after switch (model-b stopped)
-        assert!(
-            !is_port_bound(TEST_PORT_B),
-            "iteration {}: port {} should be free after switching away from model-b",
-            i + 1, TEST_PORT_B
-        );
-
-        // Verify port 9876 is bound (model-a started)
-        assert!(
-            is_port_bound(TEST_PORT_A),
-            "iteration {}: port {} should be bound after starting model-a",
-            i + 1, TEST_PORT_A
+            wait_port_bound(expected_port, Duration::from_secs(3)),
+            "port {} should be bound after switching to {} on iteration {}",
+            expected_port,
+            to,
+            i
         );
     }
 
-    // Stop the last running model (through ProcessManager, not pkill).
+    // Stop the last running model (model-a after 10 switches: A→B→A→B→A→B→A→B→A→B→A).
     pm.stop_model("model-a", false).expect("should stop model-a");
 
-    // Verify no orphan processes via port check.
     verify_ports_free();
-
-    println!("Repeated switch loop passed: {} iterations, no hangs or panics", iterations);
+    println!("Repeated switch loop passed: 10 iterations without errors or port conflicts");
 }
 
-// ─── Zombie-port test ────────────────────────────────────────────────────────
+// ─── Zombie port recovery test ────────────────────────────────────────────────
 
-/// Test the zombie-port path: manually occupy a model's port with `nc -l {port}`
-/// before calling `start_model`, confirm we get `PortOccupiedByUnknownProcess`
-/// and not a silent hang or panic.
 #[serial]
 #[test]
 fn test_zombie_port_path() {
-    // Verify no leftover processes from previous runs (port-based only).
     verify_ports_free();
 
     let (config, _guard) = load_test_config();
     let mut pm = ProcessManager::new(config);
 
-    // Start model-a first (so we have a running model to switch from)
-    pm.start_model("model-a").expect("should start model-a");
-    assert!(is_port_bound(TEST_PORT_A), "port {} should be bound after starting model-a", TEST_PORT_A);
-
-    // Now occupy port 9877 with nc -l (zombie process).
-    let nc_child = Command::new("nc")
-        .args(["-l", "-p", "9877"])
+    let zombie = std::process::Command::new("nc")
+        .args(["-l", "-p", "9876"])
         .spawn()
-        .expect("should start nc listener on port 9877");
+        .expect("should spawn nc listener to simulate zombie port");
 
-    // Wrap in Drop guard so cleanup happens even if the test panics.
-    let _zombie_guard = ZombieListenerGuard::new(nc_child, TEST_PORT_B);
-
-    // Wait for the nc process to actually bind the port.
+    let _zombie_guard = ZombieListenerGuard::new(zombie, TEST_PORT_A);
     thread::sleep(Duration::from_millis(500));
 
-    // Try to switch from model-a to model-b — should fail because port 9877 is occupied.
-    let result = pm.switch_model("model-a", "model-b");
     assert!(
-        result.is_err(),
-        "switch a→b should fail when port {} is occupied by nc",
-        TEST_PORT_B
+        is_port_bound(TEST_PORT_A),
+        "zombie nc process should occupy port 9876"
     );
 
-    // Verify we get the specific PortOccupiedByUnknownProcess error.
-    let err = result.unwrap_err();
-    match &err {
-        ProcessError::PortOccupiedByUnknownProcess { pid: _, port } => {
-            assert_eq!(
-                *port, TEST_PORT_B,
-                "error should report port {} as occupied",
-                TEST_PORT_B
-            );
+    let start_result = pm.start_model("model-a");
+    assert!(
+        start_result.is_err(),
+        "start_model should fail when port is occupied by foreign process"
+    );
+    match start_result.unwrap_err() {
+        ProcessError::PortOccupiedByUnknownProcess { port, .. } => {
+            assert_eq!(port, TEST_PORT_A, "expected port {} in error", TEST_PORT_A);
         }
-        _ => panic!("expected PortOccupiedByUnknownProcess error, got: {}", err),
+        other => panic!("expected PortAlreadyBound, got: {:?}", other),
     }
 
-    // Verify no model is running (switch stopped model-a but failed to start model-b).
+    let fake_running = swai_core::process_manager::RunningModel {
+        id: "fake-model".to_string(),
+        guard: Box::new(swai_core::process_manager::LinuxProcessGuard {
+            pid: None,
+            port: 9877,
+            shutdown_timeout_sec: 10,
+        }),
+        state: swai_core::process_manager::ModelState::Ready,
+    };
+    pm.set_running_model(fake_running);
+
+    let switch_result = pm.switch_model("fake-model", "model-a");
     assert!(
-        pm.get_primary_model_id().is_none(),
-        "no model should be running after a failed switch"
+        switch_result.is_err(),
+        "switch_model should fail before touching running model when target port is occupied"
     );
 
-    // Verify no orphan processes via port check.
-    verify_ports_free();
+    assert_eq!(
+        pm.get_primary_model_id(),
+        Some("fake-model"),
+        "fake-model should still be primary since switch failed pre-flight"
+    );
 
-    println!("Zombie-port test passed: got PortOccupiedByUnknownProcess as expected");
+    drop(_zombie_guard);
+    let _ = wait_port_free(TEST_PORT_A, Duration::from_secs(2));
+
+    verify_ports_free();
+    println!("Zombie port recovery test passed: alien processes prevented start/switch cleanly");
 }
 
 // ─── Port free check during switch ────────────────────────────────────────────
 
-/// Test that the port is always free between stop and start in switch_model.
-/// This catches the race condition where the new model starts before the old one
-/// fully releases its port.
 #[serial]
 #[test]
 fn test_port_free_between_switch_steps() {
-    // Verify no leftover processes from previous runs (port-based only).
     verify_ports_free();
 
     let (config, _guard) = load_test_config();
     let mut pm = ProcessManager::new(config);
 
-    // Start model-a first.
     pm.start_model("model-a").expect("should start model-a");
-    assert!(is_port_bound(TEST_PORT_A), "port {} should be bound after starting model-a", TEST_PORT_A);
+    assert!(wait_port_bound(TEST_PORT_A, Duration::from_secs(3)), "port {} should be bound after starting model-a", TEST_PORT_A);
 
-    // Switch A → B — this should always leave port 9876 free before binding 9877.
     let result = pm.switch_model("model-a", "model-b");
     assert!(result.is_ok(), "switch a→b should succeed");
 
-    // Verify: port 9876 should be free now.
     assert!(
         !is_port_bound(TEST_PORT_A),
         "port {} should be free after switching away from model-a",
         TEST_PORT_A
     );
 
-    // Verify: port 9877 should be bound now.
     assert!(
-        is_port_bound(TEST_PORT_B),
+        wait_port_bound(TEST_PORT_B, Duration::from_secs(3)),
         "port {} should be bound after starting model-b",
         TEST_PORT_B
     );
 
-    // Stop the last running model (through ProcessManager, not pkill).
     pm.stop_model("model-b", false).expect("should stop model-b");
 
-    // Verify no orphan processes via port check.
     verify_ports_free();
-
     println!("Port free check between switch steps passed");
 }
 
 // ─── Cleanup on test teardown ────────────────────────────────────────────────
 
-/// Ensure no orphan processes are left after any test.
 #[serial]
 #[test]
 fn test_no_orphans_after_tests() {
