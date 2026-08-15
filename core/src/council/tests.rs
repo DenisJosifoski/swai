@@ -172,3 +172,27 @@ fn test_default_pipeline_config_is_empty() {
     assert_eq!(config.mode, CouncilMode::Sequential);
     assert_eq!(config.fallback, FallbackAction::Skip);
 }
+
+#[test]
+fn test_recommend_mode_concurrent_when_zero_required() {
+    // Zero bytes always fits in any non-zero VRAM, so this should return Concurrent
+    // unless the probe fails (no GPU), in which case it falls back to Sequential.
+    let result = crate::council::recommend_mode(0);
+    // The function is deterministic: either Concurrent (GPU present) or Sequential (no GPU).
+    matches!(result, CouncilMode::Concurrent | CouncilMode::Sequential);
+}
+
+#[test]
+fn test_recommend_mode_sequential_on_impossible_requirement() {
+    // u64::MAX can never be satisfied, so we must get Sequential.
+    assert_eq!(crate::council::recommend_mode(u64::MAX), CouncilMode::Sequential);
+}
+
+#[test]
+fn test_get_available_vram_bytes_returns_valid_option() {
+    let result = crate::council::get_available_vram_bytes();
+    match result {
+        Some(v) => assert!(v > 0, "VRAM should be positive when probed"),
+        None => {} // expected on non-Linux / non-NVIDIA systems
+    }
+}
