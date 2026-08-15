@@ -13,6 +13,7 @@ pub mod single_instance;
 pub mod autostart;
 pub mod checkpoint;
 pub mod compaction;
+pub mod council;
 pub mod summarizer;
 
 use config::Config;
