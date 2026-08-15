@@ -162,13 +162,7 @@ pub fn extract_action_lines(messages: &[Value]) -> Vec<String> {
                             }
                         }
                     } else if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                        // Assistant text response (non-tool).
-                        if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
-                            if !text.is_empty() {
-                                let truncated: String = text.chars().take(150).collect();
-                                lines.push(format!("Responded: {}", truncated));
-                            }
-                        }
+                        // Skip generic assistant chatter; only track meaningful tool actions
                     }
                 }
                 // If the assistant had tool_use but no text, add a generic line.
