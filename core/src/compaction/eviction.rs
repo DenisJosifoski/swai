@@ -15,9 +15,9 @@ pub fn compact_messages_anthropic(
     let max_budget_chars = if config.max_tokens > 0 && config.max_tokens < 1000 {
         config.max_tokens
     } else if config.max_tokens >= 1000 && config.max_tokens <= 100_000 {
-        config.max_tokens.saturating_mul(4).min(140_000)
+        config.max_tokens.saturating_mul(4).min(75_000)
     } else {
-        140_000
+        75_000
     };
 
     let msg_len = |m: &Value| -> usize {

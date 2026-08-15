@@ -61,9 +61,11 @@ mod tests {
 
     #[test]
     fn test_recommend_mode_concurrent_when_vram_sufficient() {
-        // With no GPU probeable (CI / non-NVIDIA), this falls back to Sequential.
-        // We only verify the threshold logic: 0 bytes required always fits.
-        assert_eq!(recommend_mode(0), CouncilMode::Concurrent);
+        if get_available_vram_bytes().is_some() {
+            assert_eq!(recommend_mode(0), CouncilMode::Concurrent);
+        } else {
+            assert_eq!(recommend_mode(0), CouncilMode::Sequential);
+        }
     }
 
     #[test]

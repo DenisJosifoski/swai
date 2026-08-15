@@ -153,7 +153,7 @@ mod tests {
         // 2: Edit bar.rs — 10k chars
         // 3: Assistant reply — 10k chars
         // Total chars > 140k. Only 1 message needs to be dropped to get under 140k.
-        let big_content = "x".repeat(80_000);
+        let big_content = "x".repeat(45_000);
         let messages = vec![
             serde_json::json!({
                 "role": "assistant",
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn test_eviction_falls_back_when_all_files_edited() {
         // Both foo.rs and bar.rs are edited, but total exceeds 140k.
-        let big_content = "x".repeat(80_000);
+        let big_content = "x".repeat(45_000);
         let messages = vec![
             serde_json::json!({
                 "role": "assistant",
