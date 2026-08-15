@@ -4,6 +4,7 @@
 //! structures for coordinating multiple LLM agents in a council pattern.
 
 pub mod pipeline;
+pub mod streaming;
 pub mod types;
 pub mod vram;
 
@@ -11,6 +12,8 @@ pub mod vram;
 mod tests;
 #[cfg(test)]
 mod tests_pipeline;
+#[cfg(test)]
+mod tests_streaming;
 
 pub use pipeline::{CouncilEngine, CouncilError, Executor};
 pub use types::{
