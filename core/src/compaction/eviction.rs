@@ -64,10 +64,32 @@ pub fn compact_messages_anthropic(
     let units = build_eviction_units(messages);
     let mut dropped_indices = std::collections::HashSet::new();
 
-    // Helper: checks if a unit contains an edited file tool_use
-    let is_edited_unit = |unit: &(usize, usize)| -> bool {
+    // Helper: checks if a message read a plan/spec file that should be preserved
+    let is_plan_file_msg = |m: &Value| -> bool {
+        if let Some(arr) = m.get("content").and_then(|c| c.as_array()) {
+            for block in arr {
+                if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                    if let Some(name) = block.get("name").and_then(|n| n.as_str()) {
+                        if matches!(name, "Read" | "read" | "view_file" | "ViewFile") {
+                            if let Some(input) = block.get("input") {
+                                if let Some(path) = input.get("file_path").or_else(|| input.get("path")).or_else(|| input.get("TargetFile")).and_then(|p| p.as_str()) {
+                                    if path.contains("PLAN/") || path.ends_with(".md") || path.ends_with("Cargo.toml") {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    };
+
+    // Helper: checks if a unit contains an edited file or critical plan file
+    let is_critical_unit = |unit: &(usize, usize)| -> bool {
         for idx in unit.0..=unit.1 {
-            if is_edited_file_msg(&messages[idx]) {
+            if is_edited_file_msg(&messages[idx]) || is_plan_file_msg(&messages[idx]) {
                 return true;
             }
         }
@@ -93,7 +115,7 @@ pub fn compact_messages_anthropic(
                 break;
             }
             let unit = &units[u_idx];
-            if !is_edited_unit(unit) {
+            if !is_critical_unit(unit) {
                 for idx in unit.0..=unit.1 {
                     dropped_indices.insert(idx);
                     total_chars = total_chars.saturating_sub(msg_len(&messages[idx]));

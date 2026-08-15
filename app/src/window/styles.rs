@@ -68,6 +68,48 @@ pub const CSS: &str = r#"
         min-height: 16px;
     }
 
+    /* ── Context & Speed Color Classes ─────────────────────────── */
+    .ctx-green progress {
+        background-color: #4ade80;
+        border-radius: 4px;
+    }
+    .ctx-text-green {
+        color: #4ade80;
+    }
+
+    .ctx-cyan progress {
+        background-color: #2dd4f0;
+        border-radius: 4px;
+    }
+    .ctx-text-cyan {
+        color: #2dd4f0;
+    }
+
+    .ctx-orange progress {
+        background-color: #f59e0b;
+        border-radius: 4px;
+    }
+    .ctx-text-orange {
+        color: #f59e0b;
+    }
+
+    .ctx-red progress {
+        background-color: #ef4444;
+        border-radius: 4px;
+    }
+    .ctx-text-red {
+        color: #ef4444;
+    }
+
+    .accent-label {
+        color: #2dd4f0;
+        font-weight: bold;
+    }
+
+    .dim-label {
+        opacity: 0.65;
+    }
+
     /* ── Context meter: subtle rounded progress bar ────────────── */
     .context-meter {
         border-radius: 4px;
@@ -76,7 +118,6 @@ pub const CSS: &str = r#"
     }
     .context-meter progress {
         border-radius: 4px;
-        background-color: #2dd4f0;
     }
 
     /* ── Log viewer: monospace body ────────────────────────────── */
