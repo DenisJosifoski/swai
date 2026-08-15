@@ -13,6 +13,11 @@
 //! current auto-tail poller stops, the text buffer is cleared, the new
 //! model's log file is resolved, offset resets to zero, the poller restarts,
 //! and the filepath label updates.
+//!
+//! Phase 24: A "Checkpoints" toggle button in the header bar switches between
+//! the live log tailer and a read-only view of the session checkpoint file
+//! (`~/.local/share/swai/checkpoints/<model_id>.md`). Checkpoints show the
+//! condensed changelog of what SWAI summarized during compaction.
 
 use gtk4 as gtk;
 use gtk::prelude::*;
@@ -21,6 +26,15 @@ use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+
+/// View mode for the log viewer window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ViewMode {
+    /// Live tail of the model's log file.
+    Logs,
+    /// Read-only display of the session checkpoint file.
+    Checkpoints,
+}
 
 /// A log viewer window that displays a model's log file with auto-tailing.
 ///
@@ -49,6 +63,10 @@ pub struct LogViewerWindow {
     /// The model-selector dropdown in the header bar. Stored so we can
     /// programmatically update its selection when auto-follow is enabled.
     dropdown: gtk::DropDown,
+    /// Current view mode (Logs or Checkpoints).
+    view_mode: Rc<Cell<ViewMode>>,
+    /// Path to the checkpoint file for the current model.
+    checkpoint_path: Rc<Cell<Option<PathBuf>>>,
 }
 
 impl LogViewerWindow {
@@ -78,6 +96,10 @@ impl LogViewerWindow {
         // ── Header bar with action buttons & model selector ────────
         let header = gtk::HeaderBar::new();
         header.set_show_title_buttons(true);
+
+        // View mode tracking (Logs / Checkpoints).
+        let view_mode = Rc::new(Cell::new(ViewMode::Logs));
+        let checkpoint_path = Rc::new(Cell::new(None::<PathBuf>));
 
         // Model selector dropdown — populate with all configured models.
         let model_names: Vec<glib::GString> = all_models
@@ -110,6 +132,12 @@ impl LogViewerWindow {
             .build();
         export_btn.set_css_classes(&["flat"]);
 
+        // Checkpoints toggle — switches between live log tail and checkpoint view.
+        let checkpoints_btn = gtk::Button::builder()
+            .label("Checkpoints")
+            .build();
+        checkpoints_btn.set_css_classes(&["flat"]);
+
         // Close button — destroys the window and stops the poller.
         let close_btn = gtk::Button::builder()
             .label("Close")
@@ -119,6 +147,7 @@ impl LogViewerWindow {
         header.pack_start(&dropdown);
         header.pack_end(&clear_btn);
         header.pack_end(&export_btn);
+        header.pack_end(&checkpoints_btn);
         header.pack_end(&close_btn);
 
         // ── Log file path label in the header ──────────────────────
@@ -235,6 +264,98 @@ impl LogViewerWindow {
             dialog.present();
         });
 
+        // Wire Checkpoints toggle → switch between log tail and checkpoint view.
+        let view_mode_rc = Rc::clone(&view_mode);
+        let text_buffer_cp = text_buffer.clone();
+        let filepath_label_cp = filepath_label.clone();
+        let tid_rc_cp = Rc::clone(&timeout_id);
+        let last_offset_cp = Rc::clone(&last_offset);
+        let checkpoint_path_rc = Rc::clone(&checkpoint_path);
+
+        // Clone values that are also used in the dropdown closure.
+        let dropdown_cp = dropdown.clone();
+        let all_models_cp = all_models_for_dropdown.clone();
+        let log_dir_cp = log_dir_clone.clone();
+        let text_view_cp = text_view_clone.clone();
+        let lo_rc_cp = Rc::clone(&lo_rc_clone);
+        let tid_rc_dropdown_cp = Rc::clone(&tid_rc_clone);
+
+        checkpoints_btn.connect_clicked(move |btn| {
+            let current_mode = view_mode_rc.get();
+            let new_mode = match current_mode {
+                ViewMode::Logs => ViewMode::Checkpoints,
+                ViewMode::Checkpoints => ViewMode::Logs,
+            };
+            view_mode_rc.set(new_mode);
+
+            match new_mode {
+                ViewMode::Checkpoints => {
+                    // Stop the log tail poller.
+                    if let Some(id) = tid_rc_cp.take() {
+                        id.remove();
+                    }
+
+                    // Clear the text buffer.
+                    text_buffer_cp.set_text("");
+
+                    // Resolve the checkpoint file path for the current model.
+                    let selected_idx = dropdown_cp.selected() as usize;
+                    if selected_idx < all_models_cp.len() {
+                        let model = &all_models_cp[selected_idx];
+                        let cp_path = resolve_checkpoint_path(&model.id);
+                        checkpoint_path_rc.set(Some(cp_path.clone()));
+
+                        // Update filepath label.
+                        filepath_label_cp.set_text(&format!(
+                            "Checkpoints: {}",
+                            cp_path.display()
+                        ));
+
+                        // Load checkpoint content into the text buffer.
+                        if let Ok(content) = fs::read_to_string(&cp_path) {
+                            text_buffer_cp.set_text(&content);
+                        } else {
+                            text_buffer_cp.set_text(
+                                "No checkpoints recorded yet for this session.\n\n\
+                                 Checkpoints are written when message compaction occurs.\n\
+                                 Start a long coding session to trigger compaction."
+                            );
+                        }
+                    }
+
+                    // Update button appearance.
+                    btn.set_css_classes(&["suggested-action", "flat"]);
+                }
+                ViewMode::Logs => {
+                    // Clear the text buffer.
+                    text_buffer_cp.set_text("");
+                    last_offset_cp.set(0);
+
+                    // Resolve the current model's log file and restart the poller.
+                    let selected_idx = dropdown_cp.selected() as usize;
+                    if selected_idx < all_models_cp.len() {
+                        let model = &all_models_cp[selected_idx];
+                        let log_file = resolve_log_file(&model.script_path, &log_dir_cp);
+
+                        // Update filepath label.
+                        filepath_label_cp.set_text(&log_file.display().to_string());
+
+                        // Restart the tail poller.
+                        let tid = start_tail_poller(
+                            log_file,
+                            text_view_cp.clone(),
+                            lo_rc_cp.clone(),
+                            Rc::clone(&tid_rc_dropdown_cp),
+                        );
+                        tid_rc_cp.set(Some(tid));
+                    }
+
+                    // Reset button appearance.
+                    btn.set_css_classes(&["flat"]);
+                }
+            }
+        });
+
         // Wire dropdown selection change → switch model.
         dropdown.connect_selected_notify(move |dd| {
             let selected_idx = dd.selected() as usize;
@@ -299,6 +420,8 @@ impl LogViewerWindow {
             log_dir: log_dir_for_dropdown,
             all_models: all_models.to_vec(),
             dropdown,
+            view_mode: Rc::clone(&view_mode),
+            checkpoint_path: Rc::clone(&checkpoint_path),
         }
     }
 
@@ -409,6 +532,23 @@ fn start_tail_poller(
 
         glib::ControlFlow::Continue
     })
+}
+
+/// Resolve the checkpoint file path for a given session ID.
+///
+/// Checkpoint files are stored at `~/.local/share/swai/checkpoints/<session_id>.md`
+/// (or `$XDG_DATA_HOME/swai/checkpoints/<session_id>.md`).
+fn resolve_checkpoint_path(session_id: &str) -> PathBuf {
+    // Try XDG_DATA_HOME first, then fallback to ~/.local/share.
+    let base = if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        PathBuf::from(&xdg).join("swai").join("checkpoints")
+    } else if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".local").join("share").join("swai").join("checkpoints")
+    } else {
+        PathBuf::from("checkpoints")
+    };
+
+    base.join(format!("{}.md", session_id))
 }
 
 #[cfg(test)]

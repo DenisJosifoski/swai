@@ -376,16 +376,100 @@ fn handle_proxy_request(
         }
     }
 
-    // Remap model field for POST /v1/messages requests so llama-server doesn't reject custom model IDs.
+    // Phase Between 23-24: Auto-compact Anthropic /v1/messages payloads when context grows large,
+    // persist session checkpoint to ~/.local/share/swai/checkpoints/<session_id>.md, and inject
+    // the condensed changelog back into the payload.
     if !request_body.is_empty() && path_and_query.contains("/v1/messages") {
         if let Ok(mut json_val) = serde_json::from_slice::<serde_json::Value>(&request_body) {
+            let mut model_id = String::new();
             if let Some(obj) = json_val.as_object_mut() {
-                if obj.contains_key("model") {
-                    obj.insert("model".to_string(), serde_json::Value::String("claude-sonnet-4-5".to_string()));
-                    if let Ok(normalized_bytes) = serde_json::to_vec(&json_val) {
-                        request_body = normalized_bytes;
+                if let Some(m) = obj.get("model").and_then(|v| v.as_str()) {
+                    model_id = m.to_string();
+                }
+                // Remap model field so llama-server doesn't reject custom model IDs
+                obj.insert("model".to_string(), serde_json::Value::String("claude-sonnet-4-5".to_string()));
+            }
+
+            // If messages array is large (> 4 messages or payload > 30KB), compact and checkpoint!
+            if let Some(messages_arr) = json_val.get("messages").and_then(|m| m.as_array()).cloned() {
+                if messages_arr.len() > 4 || request_body.len() > 30_000 {
+                    // Extract initial user prompt objective (skipping any synthetic <system-reminder> blocks)
+                    let initial_objective: Option<String> = messages_arr.iter()
+                        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+                        .find_map(|m| {
+                            if let Some(arr) = m.get("content").and_then(|c| c.as_array()) {
+                                for b in arr {
+                                    if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                        if let Some(t) = b.get("text").and_then(|s| s.as_str()) {
+                                            let trimmed = t.trim();
+                                            if !trimmed.starts_with("<system-reminder>") && !trimmed.starts_with("<system_reminder>") && !trimmed.is_empty() {
+                                                return Some(trimmed.chars().take(300).collect());
+                                            }
+                                        }
+                                    }
+                                }
+                                None
+                            } else if let Some(s) = m.get("content").and_then(|c| c.as_str()) {
+                                let trimmed = s.trim();
+                                if let Some(end_tag) = trimmed.find("</system-reminder>") {
+                                    let remainder = trimmed[end_tag + "</system-reminder>".len()..].trim();
+                                    if !remainder.is_empty() {
+                                        return Some(remainder.chars().take(300).collect());
+                                    }
+                                }
+                                if !trimmed.starts_with("<system-reminder>") && !trimmed.starts_with("<system_reminder>") && !trimmed.is_empty() {
+                                    Some(trimmed.chars().take(300).collect())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        });
+
+                    let compaction_cfg = crate::compaction::CompactionConfig::default();
+                    let (summary_lines, remaining) = crate::compaction::compact_messages_anthropic(&messages_arr, &compaction_cfg);
+                    
+                    // 1. Always update messages array with the compacted/truncated remaining messages
+                    if let Some(obj) = json_val.as_object_mut() {
+                        obj.insert("messages".to_string(), serde_json::Value::Array(remaining));
+                    }
+
+                    // 2. If messages were dropped, write checkpoint to disk and inject checkpoint text
+                    if !summary_lines.is_empty() {
+                        let session_name = state.lock().ok().and_then(|s| {
+                            s.active_models.iter().find(|(_, &p)| p == target_port).map(|(id, _)| id.clone())
+                        }).unwrap_or_else(|| if !model_id.is_empty() { model_id } else { "swai-session".to_string() });
+
+                        if let Ok(writer) = crate::checkpoint::CheckpointWriter::new(&session_name) {
+                            let next_idx = writer.next_checkpoint_index();
+                            let entry = crate::checkpoint::CheckpointEntry {
+                                index: next_idx,
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                summary_lines: summary_lines.clone(),
+                            };
+                            let _ = writer.write_entry_with_objective(&entry, initial_objective.as_deref());
+                        }
+
+                        let mut checkpoint_lines = Vec::new();
+                        checkpoint_lines.push("[Session checkpoint — earlier work in this conversation, condensed]".to_string());
+                        if let Some(ref obj) = initial_objective {
+                            checkpoint_lines.push(format!("Initial Objective: {}", obj));
+                        }
+                        checkpoint_lines.push("Note: this is a condensed action log, not literal file content. If you need exact field names, types, function signatures, or other precise code details from a file listed below, re-read that file — do not reconstruct it from memory.".to_string());
+                        for (i, l) in summary_lines.iter().enumerate() {
+                            checkpoint_lines.push(format!("{}. {}", i + 1, l));
+                        }
+                        checkpoint_lines.push("[End checkpoint — continuing below]".to_string());
+                        let checkpoint_text = checkpoint_lines.join("\n");
+
+                        crate::compaction::inject_checkpoint_into_payload(&mut json_val, &checkpoint_text);
                     }
                 }
+            }
+
+            if let Ok(normalized_bytes) = serde_json::to_vec(&json_val) {
+                request_body = normalized_bytes;
             }
         }
     }

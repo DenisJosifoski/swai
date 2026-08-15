@@ -681,6 +681,9 @@ impl MainWindow {
                     // P0-1/P2-4: Handle intermediate state updates from health monitor.
                     ChannelMessage::StateUpdate { model_id, state } => {
                         let mut needs_toggle_enable = false;
+                        let mut ready_model_name: Option<String> = None;
+                        let mut error_info: Option<(String, String)> = None;
+
                         for c in cards_borrow.iter_mut() {
                             if c.config().id == model_id {
                                 match &state {
@@ -693,12 +696,14 @@ impl MainWindow {
                                     ModelState::Ready => {
                                         c.set_state(CardState::Ready);
                                         needs_toggle_enable = true;
+                                        ready_model_name = Some(c.config().name.clone());
                                     }
                                     ModelState::Error(msg) => {
                                         c.set_state(CardState::Error(format!(
                                             "Failed to load: {}", msg
                                         )));
                                         needs_toggle_enable = true;
+                                        error_info = Some((c.config().name.clone(), msg.clone()));
                                     }
                                     _ => {}
                                 }
@@ -708,6 +713,39 @@ impl MainWindow {
                             for card in cards_borrow.iter_mut() {
                                 card.enable_toggle();
                                 card.enable_restart();
+                            }
+                        }
+
+                        // Sync tray menu on model state transition.
+                        if let Some(ref handle) = *tray_handle_timeout.borrow() {
+                            handle.update(|_| {});
+                        }
+
+                        // Update footer model label.
+                        if let Some(active_card) = cards_borrow.iter().find(|c| {
+                            matches!(c.state(), CardState::Ready | CardState::Starting | CardState::Loading)
+                        }) {
+                            footer_model_label_clone.set_text(&format!("{} active", active_card.config().name));
+                            footer_model_label_clone.set_css_classes(&["accent-label"]);
+                        } else {
+                            footer_model_label_clone.set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
+                            footer_model_label_clone.set_css_classes(&["dim-label"]);
+                        }
+
+                        // Trigger desktop notifications.
+                        if let Some(name) = ready_model_name {
+                            if config_for_timeout.enable_notifications() && config_for_timeout.notify_on_switch() {
+                                Self::notify(
+                                    "SWAI",
+                                    &format!("{} is now Ready", name),
+                                );
+                            }
+                        } else if let Some((name, err)) = error_info {
+                            if config_for_timeout.enable_notifications() {
+                                Self::notify(
+                                    "SWAI - Model Error",
+                                    &format!("Failed to load {}: {}", name, err),
+                                );
                             }
                         }
                     }
@@ -1726,6 +1764,16 @@ impl MainWindow {
         ));
         window.add_action(&about_action);
 
+        let check_updates_action = gio::SimpleAction::new("check_updates", None);
+        check_updates_action.connect_activate(glib::clone!(
+            #[weak]
+            window,
+            move |_, _| {
+                Self::show_check_updates_dialog(&window);
+            }
+        ));
+        window.add_action(&check_updates_action);
+
         let github_action = gio::SimpleAction::new("github", None);
         github_action.connect_activate(|_, _| {
             let _ = gio::AppInfo::launch_default_for_uri(
@@ -2101,11 +2149,15 @@ impl MainWindow {
 
         about_dialog.add_link("GitHub", "https://github.com/verdioso/swai");
 
-        // Phase 20: Show a separate "Check for Updates" dialog instead of
-        // embedding a button in the About dialog (AdwAboutDialog doesn't
-        // support custom action widgets).
-        let parent_about = parent.clone();
-        let parent_for_response = parent_about.clone();
+        // Present the about dialog.
+        about_dialog.present(Some(parent));
+    }
+
+    /// Show the "Check for Updates" dialog.
+    fn show_check_updates_dialog(parent: &adw::ApplicationWindow) {
+        let version = env!("CARGO_PKG_VERSION");
+        let parent_win = parent.clone();
+        let parent_for_response = parent_win.clone();
         let check_btn = gtk::Button::builder()
             .label("Check for Updates…")
             .css_classes(vec!["suggested-action"])
@@ -2114,7 +2166,7 @@ impl MainWindow {
 
         let check_dialog = gtk::Dialog::builder()
             .title("SWAI - Check for Updates")
-            .transient_for(&parent_about)
+            .transient_for(&parent_win)
             .modal(true)
             .build();
 
@@ -2139,6 +2191,9 @@ impl MainWindow {
 
         check_dialog.content_area().append(&check_content);
         check_dialog.add_button("_Cancel", ResponseType::Cancel);
+        check_dialog.connect_response(|d, _| {
+            d.destroy();
+        });
 
         check_btn.connect_clicked(move |btn| {
             btn.set_sensitive(false);
@@ -2156,7 +2211,7 @@ impl MainWindow {
             match result {
                 crate::update_checker::UpdateCheckResult::UpdateAvailable { version, .. } => {
                     let dlg = gtk::MessageDialog::new(
-                        Some(&parent_about),
+                        Some(&parent_resp),
                         gtk::DialogFlags::MODAL,
                         gtk::MessageType::Info,
                         gtk::ButtonsType::None,
@@ -2228,7 +2283,7 @@ impl MainWindow {
                 }
                 crate::update_checker::UpdateCheckResult::NoUpdate => {
                     let dlg = gtk::MessageDialog::new(
-                        Some(&parent_about),
+                        Some(&parent_resp),
                         gtk::DialogFlags::MODAL,
                         gtk::MessageType::Info,
                         gtk::ButtonsType::Close,
@@ -2240,7 +2295,7 @@ impl MainWindow {
                 }
                 crate::update_checker::UpdateCheckResult::Error(e) => {
                     let dlg = gtk::MessageDialog::new(
-                        Some(&parent_about),
+                        Some(&parent_resp),
                         gtk::DialogFlags::MODAL,
                         gtk::MessageType::Error,
                         gtk::ButtonsType::Close,
@@ -2256,11 +2311,7 @@ impl MainWindow {
             btn.set_label("Check for Updates…");
         });
 
-        // Show the check dialog transient to the about dialog.
         check_dialog.present();
-
-        // Present the about dialog.
-        about_dialog.present(Some(parent));
     }
 
     /// Spawn the context polling thread.
@@ -2298,25 +2349,7 @@ impl MainWindow {
                 }
 
                 let ready_ports: Vec<(String, u16)> = match pm.lock() {
-                    Ok(pm_lock) => pm_lock
-                        .get_running_models()
-                        .iter()
-                        .filter_map(|rm| {
-                            if rm.state == ModelState::Ready {
-                                let id = rm.id.clone();
-                                let port = pm_lock
-                                    .config()
-                                    .models
-                                    .iter()
-                                    .find(|m| m.id == id)
-                                    .map(|m| m.port)
-                                    .unwrap_or(0);
-                                Some((id, port))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect(),
+                    Ok(pm_lock) => pm_lock.running_model_ports(),
                     Err(_) => continue,
                 };
 

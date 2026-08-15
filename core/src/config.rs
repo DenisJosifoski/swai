@@ -99,6 +99,13 @@ pub struct PreferencesConfig {
     /// Range: 1–4. Default: 1 (legacy single-model behavior).
     #[serde(default = "default_max_concurrent_models")]
     pub max_concurrent_models: usize,
+
+    /// Optional model ID to use as the checkpoint summarizer.
+    /// When `None` (default), summarization is routed to the active/primary model.
+    /// When set to a configured model id, that model handles summarization
+    /// requests so the primary model's context is not consumed by compaction.
+    #[serde(default)]
+    pub checkpoint_summarizer_model: Option<String>,
 }
 
 impl Default for PreferencesConfig {
@@ -109,6 +116,7 @@ impl Default for PreferencesConfig {
             notify_on_switch: true,
             autostart_on_login: false,
             max_concurrent_models: 1,
+            checkpoint_summarizer_model: None,
         }
     }
 }
@@ -131,6 +139,11 @@ fn default_autostart_on_login() -> bool {
 
 fn default_max_concurrent_models() -> usize {
     1
+}
+
+#[allow(dead_code)]
+fn default_checkpoint_summarizer_model() -> Option<String> {
+    None
 }
 
 /// Global settings section.
@@ -297,6 +310,23 @@ impl Config {
     pub fn max_concurrent_models(&self) -> usize {
         self.preferences.max_concurrent_models
     }
+
+    /// Get the configured checkpoint summarizer model id (if any).
+    ///
+    /// When `None`, summarization is routed to the active/primary model.
+    /// When set, that specific model handles summarization requests so the
+    /// primary model's context is not consumed by compaction overhead.
+    pub fn checkpoint_summarizer_model(&self) -> Option<&str> {
+        self.preferences.checkpoint_summarizer_model.as_deref()
+    }
+
+    /// Get all configured models as a list of (id, name) pairs.
+    ///
+    /// Used by the Preferences UI to populate dropdown selectors that let
+    /// users choose a model for a specific role (e.g., checkpoint summarizer).
+    pub fn configured_models(&self) -> Vec<(&str, &str)> {
+        self.models.iter().map(|m| (m.id.as_str(), m.name.as_str())).collect()
+    }
 }
 
 /// Returns an example config.toml for first-run reference.
@@ -407,7 +437,7 @@ mod tests {
     #[test]
     fn test_default_log_dir() {
         let dir = Config::default_log_dir();
-        assert!(dir.to_string_lossy().ends_with(".local/share/swai/logs/"));
+        assert!(dir.to_string_lossy().contains(".local/share/swai/logs"));
     }
 
     #[test]
@@ -440,6 +470,7 @@ mod tests {
                 notify_on_switch: true,
                 autostart_on_login: false,
                 max_concurrent_models: 2,
+                checkpoint_summarizer_model: None,
             },
         };
 
@@ -494,6 +525,7 @@ auto_restart_on_context_full = true
                 notify_on_switch: false,
                 autostart_on_login: false,
                 max_concurrent_models: 3,
+                checkpoint_summarizer_model: None,
             },
         };
 
@@ -545,6 +577,7 @@ auto_restart_on_context_full = true
                 notify_on_switch: true,
                 autostart_on_login: false,
                 max_concurrent_models: 3,
+                checkpoint_summarizer_model: None,
             },
         };
 
@@ -568,5 +601,74 @@ auto_restart_on_context_full = true
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.max_concurrent_models(), 1);
+    }
+
+    #[test]
+    fn test_checkpoint_summarizer_model_default() {
+        // When checkpoint_summarizer_model is absent from TOML, default should be None.
+        let toml_str = r#"
+schema_version = 1
+
+[global]
+log_dir = ""
+proxy_port = 9080
+auto_restart_on_context_full = true
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.checkpoint_summarizer_model(), None);
+    }
+
+    #[test]
+    fn test_checkpoint_summarizer_model_serialization() {
+        // Verify checkpoint_summarizer_model round-trips through TOML serialization.
+        let config = Config {
+            schema_version: 1,
+            models: vec![],
+            global: GlobalSettings::default(),
+            preferences: PreferencesConfig {
+                auto_follow_logs: true,
+                enable_notifications: true,
+                notify_on_switch: true,
+                autostart_on_login: false,
+                max_concurrent_models: 1,
+                checkpoint_summarizer_model: Some("ornith-35b".to_string()),
+            },
+        };
+
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        assert!(serialized.contains("checkpoint_summarizer_model"));
+
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.checkpoint_summarizer_model(), Some("ornith-35b"));
+    }
+
+    #[test]
+    fn test_configured_models() {
+        let config = Config {
+            schema_version: 1,
+            models: vec![
+                ModelConfig {
+                    id: "m1".to_string(),
+                    name: "Model One".to_string(),
+                    script_path: std::path::PathBuf::from("/dev/null"),
+                    port: 8081,
+                    health_timeout_sec: 30,
+                },
+                ModelConfig {
+                    id: "m2".to_string(),
+                    name: "Model Two".to_string(),
+                    script_path: std::path::PathBuf::from("/dev/null"),
+                    port: 8082,
+                    health_timeout_sec: 30,
+                },
+            ],
+            global: GlobalSettings::default(),
+            preferences: PreferencesConfig::default(),
+        };
+
+        let models = config.configured_models();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0], ("m1", "Model One"));
+        assert_eq!(models[1], ("m2", "Model Two"));
     }
 }

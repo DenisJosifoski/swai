@@ -289,6 +289,9 @@ impl ModelCard {
         if !matches!(&new_state, CardState::Ready) {
             self.clear_speed();
         }
+        if matches!(&new_state, CardState::Stopped) {
+            self.clear_context();
+        }
 
         // Update restart button and logs button sensitivity: enabled only when
         // Ready or Error (logs available once the model has produced output).

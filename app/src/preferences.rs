@@ -2,11 +2,10 @@
 
 use gtk4 as gtk;
 use gtk::prelude::*;
-use gtk::{FileChooserAction, Orientation, ResponseType, Window};
+use gtk::{DropDown, FileChooserAction, Orientation, ResponseType, SpinButton, StringList, Window};
 
 use adw::prelude::*;
 use adw::{ActionRow, EntryRow, ExpanderRow, SwitchRow};
-use gtk::SpinButton;
 
 use swai_core::config::Config;
 
@@ -25,6 +24,7 @@ pub struct PreferencesDialog {
     notify_on_switch_switch: SwitchRow,
     autostart_switch: SwitchRow,
     max_concurrent_spin: SpinButton,
+    summarizer_model_combo: DropDown,
 }
 
 /// The values from the preferences form.
@@ -38,6 +38,7 @@ pub struct PreferencesValues {
     pub notify_on_switch: bool,
     pub autostart_on_login: bool,
     pub max_concurrent_models: usize,
+    pub checkpoint_summarizer_model: Option<String>,
 }
 
 impl PreferencesDialog {
@@ -59,6 +60,7 @@ impl PreferencesDialog {
         let notify_on_switch = self.notify_on_switch_switch.is_active();
         let autostart = self.autostart_switch.is_active();
         let max_concurrent = self.max_concurrent_spin.value() as usize;
+        let summarizer_model = self.extract_summarizer_model();
 
         PreferencesValues {
             log_dir,
@@ -69,6 +71,7 @@ impl PreferencesDialog {
             notify_on_switch,
             autostart_on_login: autostart,
             max_concurrent_models: max_concurrent,
+            checkpoint_summarizer_model: summarizer_model,
         }
     }
 
@@ -130,130 +133,8 @@ impl PreferencesDialog {
         // Max concurrent models spin button.
         let max_concurrent_spin = Self::add_max_concurrent_models_row(&content_box, config);
 
-        // Phase 20: "Check for Updates" button.
-        let check_update_btn = gtk::Button::builder()
-            .label("Check for Updates…")
-            .css_classes(vec!["suggested-action"])
-            .halign(gtk::Align::End)
-            .margin_top(12)
-            .build();
-
-        let parent_win = widget.clone();
-        check_update_btn.connect_clicked(move |btn| {
-            btn.set_sensitive(false);
-            btn.set_label("Checking…");
-
-            // Perform update check synchronously (quick HTTP request).
-            let result = crate::update_checker::check_for_updates_blocking(
-                "verdioso/swai",
-                env!("CARGO_PKG_VERSION"),
-            );
-
-            match result {
-                crate::update_checker::UpdateCheckResult::UpdateAvailable { version, .. } => {
-                    let dlg = gtk::MessageDialog::new(
-                        Some(&parent_win),
-                        gtk::DialogFlags::MODAL,
-                        gtk::MessageType::Info,
-                        gtk::ButtonsType::None,
-                        &format!(
-                            "SWAI v{} is available!\n\n\
-                             Would you like to download and install it?",
-                            version,
-                        ),
-                    );
-                    dlg.set_title(Some("SWAI - Update Available"));
-                    dlg.add_button("_Later", ResponseType::Cancel);
-                    dlg.add_button("_Download & Install", ResponseType::Ok);
-
-                    let dialog_parent = parent_win.clone();
-                    dlg.connect_response(move |d, response| {
-                        if response == ResponseType::Ok {
-                            let install_result =
-                                crate::update_installer::install_update(
-                                    "verdioso/swai",
-                                    &version,
-                                );
-                            match install_result {
-                                crate::update_installer::UpdateInstallResult::Success {
-                                    new_version,
-                                } => {
-                                    let notif = gtk::MessageDialog::new(
-                                        Some(&dialog_parent),
-                                        gtk::DialogFlags::MODAL,
-                                        gtk::MessageType::Info,
-                                        gtk::ButtonsType::None,
-                                        &format!(
-                                            "SWAI updated to v{} successfully!\n\n\
-                                             Click 'Restart Now' to apply the update.",
-                                            new_version,
-                                        ),
-                                    );
-                                    notif.set_title(Some("SWAI - Update Complete"));
-                                    notif.add_button("_Later", ResponseType::Cancel);
-                                    notif.add_button("_Restart Now", ResponseType::Ok);
-
-                                    notif.connect_response(|n, response| {
-                                        if response == ResponseType::Ok {
-                                            if let Ok(exe) = std::env::current_exe() {
-                                                let _ = std::process::Command::new(exe).spawn();
-                                            } else {
-                                                let _ = std::process::Command::new("swai").spawn();
-                                            }
-                                            std::process::exit(0);
-                                        }
-                                        n.destroy();
-                                    });
-                                    notif.present();
-                                }
-                                crate::update_installer::UpdateInstallResult::Error(e) => {
-                                    let err = gtk::MessageDialog::new(
-                                        Some(&dialog_parent),
-                                        gtk::DialogFlags::MODAL,
-                                        gtk::MessageType::Error,
-                                        gtk::ButtonsType::Close,
-                                        &format!("Update failed:\n\n{}", e),
-                                    );
-                                    err.set_title(Some("SWAI - Update Error"));
-                                    err.connect_response(|e_dlg, _| e_dlg.destroy());
-                                    err.present();
-                                }
-                            }
-                        }
-                        d.destroy();
-                    });
-                    dlg.present();
-                }
-                crate::update_checker::UpdateCheckResult::NoUpdate => {
-                    let dlg = gtk::MessageDialog::new(
-                        Some(&parent_win),
-                        gtk::DialogFlags::MODAL,
-                        gtk::MessageType::Info,
-                        gtk::ButtonsType::Close,
-                        "You are running the latest version of SWAI.",
-                    );
-                    dlg.set_title(Some("SWAI - Up to Date"));
-                    dlg.connect_response(|d, _| d.destroy());
-                    dlg.present();
-                }
-                crate::update_checker::UpdateCheckResult::Error(e) => {
-                    let dlg = gtk::MessageDialog::new(
-                        Some(&parent_win),
-                        gtk::DialogFlags::MODAL,
-                        gtk::MessageType::Error,
-                        gtk::ButtonsType::Close,
-                        &format!("Failed to check for updates:\n\n{}", e),
-                    );
-                    dlg.set_title(Some("SWAI - Update Check Failed"));
-                    dlg.connect_response(|d, _| d.destroy());
-                    dlg.present();
-                }
-            }
-
-            btn.set_sensitive(true);
-            btn.set_label("Check for Updates…");
-        });
-        content_box.append(&check_update_btn);
+        // Checkpoint summarizer model dropdown.
+        let summarizer_model_combo = Self::add_summarizer_model_row(&content_box, config);
 
         // Gateway information section (Phase 12.2).
         Self::add_gateway_section(&content_box, config);
@@ -279,6 +160,7 @@ impl PreferencesDialog {
             notify_on_switch_switch,
             autostart_switch,
             max_concurrent_spin,
+            summarizer_model_combo,
         }
     }
 
@@ -307,6 +189,7 @@ impl PreferencesDialog {
         let notify_on_switch = self.notify_on_switch_switch.is_active();
         let autostart = self.autostart_switch.is_active();
         let max_concurrent = self.max_concurrent_spin.value() as usize;
+        let summarizer_model = self.extract_summarizer_model();
 
         let mut config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
         config.global.log_dir = log_dir;
@@ -317,6 +200,7 @@ impl PreferencesDialog {
         config.preferences.notify_on_switch = notify_on_switch;
         config.preferences.autostart_on_login = autostart;
         config.preferences.max_concurrent_models = max_concurrent;
+        config.preferences.checkpoint_summarizer_model = summarizer_model;
 
         Config::validate(&config, config_path).map_err(|e| format!("Config validation error: {}", e))?;
 
@@ -486,6 +370,70 @@ impl PreferencesDialog {
 
         parent.append(&row);
         spin
+    }
+
+    /// Add a dropdown row for selecting the checkpoint summarizer model.
+    ///
+    /// Options include "Same as active model (Default)" plus each configured
+    /// model's display name. The selected value is stored as either `None`
+    /// (default) or the model's configured id.
+    fn add_summarizer_model_row(parent: &gtk::Box, config: &Config) -> DropDown {
+        // Build the dropdown options: "Same as active model (Default)" first,
+        // then each configured model's name. We track the mapping from display
+        // text → model id (or None for the default option) separately.
+        let mut display_names: Vec<&str> = vec!["Same as active model (Default)"];
+        let mut model_ids: Vec<Option<String>> = vec![None];
+
+        for (id, name) in config.configured_models() {
+            display_names.push(name);
+            model_ids.push(Some(id.to_string()));
+        }
+
+        // StringList::new expects &[&str].
+        let string_list = StringList::new(&display_names);
+
+        let dropdown = DropDown::new(Some(string_list), None::<gtk::Expression>);
+
+        // Set the initial selection based on current config.
+        if let Some(ref preferred) = config.preferences.checkpoint_summarizer_model {
+            for (i, opt_id) in model_ids.iter().enumerate() {
+                if let Some(ref id) = opt_id {
+                    if id == preferred {
+                        dropdown.set_selected(i as u32);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Wrap in an ActionRow for consistent styling with the rest of the dialog.
+        let row = ActionRow::builder()
+            .title("Checkpoint Summarizer Model")
+            .subtitle("Model used to summarize evicted conversation history. Leaving it on the active model means summarization shares context; selecting a secondary model offloads summarization to keep the primary model's context free.")
+            .build();
+        row.add_prefix(&dropdown);
+
+        parent.append(&row);
+        dropdown
+    }
+
+    /// Extract the selected summarizer model id from the dropdown.
+    ///
+    /// Returns `None` if "Same as active model (Default)" is selected, or the
+    /// configured model id otherwise.
+    fn extract_summarizer_model(&self) -> Option<String> {
+        // The dropdown's selected item index maps to our items array:
+        // 0 = "Same as active model (Default)", 1+ = configured models.
+        let selected = self.summarizer_model_combo.selected();
+        if selected == 0 {
+            return None;
+        }
+
+        // Look up the model id from the configured models list.
+        // We reconstruct the mapping: index 1 → first model, etc.
+        let config = swai_core::config::Config::load().ok()?;
+        let idx = (selected as usize).saturating_sub(1);
+        config.configured_models().get(idx).map(|(id, _)| id.to_string())
     }
 
     // ─── Gateway Information Section (Phase 12.2 + Phase 17) ────────────────

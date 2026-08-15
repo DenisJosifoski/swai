@@ -879,6 +879,7 @@ mod tests {
                 notify_on_switch: true,
                 autostart_on_login: false,
                 max_concurrent_models: 4,
+                checkpoint_summarizer_model: None,
             },
         };
         let pm = ProcessManager::new(config);

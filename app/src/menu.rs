@@ -54,10 +54,11 @@ fn build_view_section() -> Menu {
     menu
 }
 
-/// Build the Help section: About, Open GitHub Repo.
+/// Build the Help section: Check for Updates, Open GitHub Repo, About.
 fn build_help_section() -> Menu {
     let menu = Menu::new();
-    menu.append(Some("About"), Some("win.about"));
+    menu.append(Some("Check for Updates…"), Some("win.check_updates"));
     menu.append(Some("Open GitHub Repo"), Some("win.github"));
+    menu.append(Some("About"), Some("win.about"));
     menu
 }

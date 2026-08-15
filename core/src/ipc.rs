@@ -732,7 +732,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_ipc_client_socket_not_found() {
+        let old_home = std::env::var("HOME").ok();
         let req = ActionRequest {
             action: "status".to_string(),
             data: None,
@@ -740,6 +742,9 @@ mod tests {
         // Without HOME set, socket_path will be relative — and the file won't exist.
         std::env::remove_var("HOME");
         let result = ipc_send(&req);
+        if let Some(ref h) = old_home {
+            std::env::set_var("HOME", h);
+        }
         assert!(result.is_err());
         match result.unwrap_err() {
             IpcClientError::SocketNotFound => {} // expected

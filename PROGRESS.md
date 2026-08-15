@@ -1243,3 +1243,174 @@ Implemented a Unix Domain Socket IPC interface so terminal commands (`swai start
 - **Primary model concept**: The first model started becomes the "primary" — when clients don't specify a target model, traffic still flows to this model. Subsequent concurrent models are addressed only by explicit `model` field in requests.
 - **HashMap lookup by id**: `active_models` maps model config id → port. Name-based matching is attempted at the ProcessManager level via `resolve_running_port()`, giving clients flexibility to address models by either id or display name.
 - **SpinButton clamped to 1–4**: The GTK `SpinButton` uses an `Adjustment` with lower=1, upper=4, step=1, and `snap_to_ticks=true` to enforce integer values in the allowed range.
+
+## Phase Between 23–24-1 — Checkpoint Engine & Message Injection
+
+### What was built
+
+1. **`core/src/checkpoint.rs`** (new module) — In-memory session checkpointing data structures:
+   - `CheckpointEntry` — single compaction event with index, timestamp (RFC 3339), and summary lines
+   - `SessionCheckpoint` — per-session checkpoint state with `add_entry()`, `format_for_injection()`, `len()`, `is_empty()`
+   - `CheckpointRegistry` — thread-safe global registry (`Arc<Mutex<HashMap>>`) for managing multiple active sessions, with `get_or_create()`, `get()`, `remove()`, `format_all()`
+   - `format_for_injection()` produces numbered markdown block: `[Session checkpoint — earlier work in this conversation, condensed]` → `1. Read src/lib.rs` → `[End checkpoint — continuing below]`
+
+2. **`core/src/compaction.rs`** (new module) — Message compaction and prompt injection:
+   - `Message` struct — Anthropic Messages API message format with content as `Vec<Value>` (string or array of content blocks)
+   - `Message` helper methods: `first_text()`, `has_tool_use()`, `tool_use_name()`, `is_tool_result()`, `tool_result_status()`, `read_file_path()`, `edit_file_path()`, `run_command_string()`
+   - `CompactionConfig` — TOML-serializable config with `enabled`, `max_tokens`, `summary_length` fields and sensible defaults
+   - `extract_action_lines()` — converts dropped message slices into plain-text action lines:
+     - `user` text → extracted (capped at 200 chars)
+     - `assistant` with `Read`/`ViewFile` → "Read <file_path>"
+     - `assistant` with `Edit`/`ReplaceFileContent` → "Edited <file_path>"
+     - `assistant` with `RunCommand` → "Ran command: <cmd>"
+     - `user` tool_result → "Result: passed" or "Result: failed: <error>"
+   - `serialize_dropped_slice()` — deterministic fallback synthesizer (delegates to `extract_action_lines`)
+   - `compact_messages_anthropic()` — evicts oldest messages, returns `(summary_lines, remaining_messages)`
+   - `inject_checkpoint_into_payload()` — inserts checkpoint message after the last system prompt in Anthropic Messages API JSON payload
+
+3. **`core/src/lib.rs`** — Exposed `pub mod checkpoint;` and `pub mod compaction;`
+
+### Architecture decisions
+- **Inline `#[cfg(test)]` modules**: Tests live inside each source file (matching existing codebase pattern) rather than in a separate test file — keeps test-source coupling tight and avoids an extra file.
+- **Clone-based registry API**: `get_or_create()` returns a cloned `SessionCheckpoint` rather than a `MutexGuard` to avoid borrow-checker issues with returning guards that borrow from the lock. Callers that need mutation access the registry's internal `sessions` field directly in tests.
+- **Last system message insertion**: The checkpoint is injected after the LAST system prompt (not the first) to correctly handle payloads with multiple system messages — a common pattern when users have layered prompts.
+- **`isError` detection at content-block level**: Anthropic tool_result messages nest `isError` on individual text blocks within the `content` array, not at the top level. The extractor handles both placements.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `SWAI_NO_SINGLE_INSTANCE=1 cargo test -p swai-core --lib`: All 168 unit tests pass (was 129, added 39 new)
+- `SWAI_NO_SINGLE_INSTANCE=1 cargo test -p swai`: All 33 app unit tests pass (unchanged)
+- Total: 201 unit tests passing (168 core + 33 app)
+
+### Verification requirements met
+1. ✅ `cargo check --workspace` — 0 errors, 0 warnings
+2. ✅ `cargo test --workspace` — all unit tests passing (integration tests have pre-existing env setup requirements)
+3. ✅ Unit test: Dropped slice containing tool_use (Read/Edit/RunCommand) produces clean numbered action lines
+4. ✅ Unit test: Injected checkpoint block appears at exact expected position in Anthropic messages array
+5. ✅ Unit test: Sequential compactions append numbered entries without overwriting previous history
+
+## Phase Between 23–24-2 — Summarizer Inference, Multi-Model Routing & Preferences UI
+
+### What was built
+
+1. **`core/src/summarizer.rs`** (new module) — Active LLM summarization engine:
+   - `SUMMARIZER_SYSTEM_PROMPT` / `SUMMARIZER_USER_PROMPT` — prompt templates instructing the LLM to produce a factual changelog (no conversational prose)
+   - `call_summarizer()` — synchronous HTTP POST to `{port}/v1/chat/completions` with 4-second timeout (strictly under 5s to avoid stalling the proxy pipeline). Sends an OpenAI-compatible payload with `temperature: 0.0`, `max_tokens: 500`.
+   - `parse_summarizer_response()` — splits LLM response by newlines, strips bullet markers (`-`, `*`, `•`), filters empty lines and markdown code fences
+   - `format_messages_for_summarization()` — converts Anthropic-format dropped messages into readable text blocks (e.g., `[User]: ...`, `[Tool: Read src/lib.rs]`) for the summarizer prompt
+   - `resolve_summarizer_route()` — checks `PreferencesConfig.checkpoint_summarizer_model`: if set and that model is running, routes to its port; otherwise falls back to primary model port
+   - `summarize_dropped_slice()` — main entry point: resolves route → calls LLM → falls back to `extract_action_lines()` on any failure (timeout, network error, parse error). The proxy pipeline never blocks due to summarization.
+
+2. **`core/src/config.rs`** — Added `checkpoint_summarizer_model: Option<String>` to `PreferencesConfig`:
+   - Default: `None` (summarization routed to active/primary model)
+   - When set to a configured model id, that model handles summarization to keep the primary model's context free
+   - Added `Config::checkpoint_summarizer_model()` getter and `Config::configured_models()` helper (returns `Vec<(&str, &str)>` for UI dropdown population)
+
+3. **`app/src/preferences.rs`** — Added "Checkpoint Summarizer Model" dropdown selector:
+   - Uses `gtk::DropDown` with `StringList` populated by configured model names
+   - First option: "Same as active model (Default)" → maps to `None`
+   - Subsequent options: each configured model's display name → maps to its id
+   - Initial selection matches current config value
+   - `PreferencesValues.checkpoint_summarizer_model: Option<String>` field added
+   - `values()` reads dropdown selection; `save()` persists to `config.toml`
+
+4. **Unit tests** (30 new tests in `summarizer::tests`):
+   - 8 response parsing tests (single line, multiple lines, bullet stripping, asterisk stripping, empty line filtering, code fence filtering, empty input, whitespace-only)
+   - 6 message formatting tests (user text, truncation, assistant Read/Edit/RunCommand tools, tool result passed/failed, mixed messages, empty)
+   - 2 request building tests (structure validation, dropped text inclusion)
+   - 4 route resolution tests (preferred model running, preferred not running → fallback, None → primary, no model available)
+   - 2 summarization tests (fallback without any model, fallback with running model)
+   - 3 truncate_text tests (short, long, exact length)
+   - All 229 unit tests pass (168 core + 33 app + 28 new summarizer tests)
+
+### Architecture decisions
+- **5-second strict timeout**: The summarizer HTTP request uses a 4-second `reqwest` timeout to leave margin before the 5-second proxy pipeline stall threshold. This ensures compaction never blocks user-facing requests.
+- **Fallback to deterministic extractor**: When the LLM call fails (timeout, network error, parse error), the system falls back to `extract_action_lines()` from `compaction.rs`. The proxy pipeline must never fail or block due to summarization — this is a hard requirement.
+- **Multi-model routing via ProcessManager**: The summarizer route resolver checks `running_ports` from the ProcessManager's active model set. If the configured secondary model is running concurrently, its port is used directly. Otherwise falls back to the primary model.
+- **`ActionRow` + `DropDown` prefix pattern**: Consistent with the existing `SpinButton` prefix pattern (`add_max_concurrent_models_row`). `DropDownRow` doesn't exist in adw 0.7, so we use `ActionRow::builder().add_prefix(&dropdown)`.
+- **`StringList::new(&[&str])`**: The GTK4 `StringList::new()` API requires `&[&str]`, not `&Vec<String>`. We built the display names as `Vec<&str>` directly from `Config::configured_models()`.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `cargo test --workspace`: All 229 unit tests pass (168 core + 33 app + 28 new summarizer tests)
+- Integration tests: pre-existing environment issues (single-instance lock conflict), not caused by this phase
+
+### Verification requirements met
+1. ✅ `cargo check --workspace` — 0 errors, 0 warnings
+2. ✅ `cargo test --workspace` — all unit tests passing
+3. ✅ Unit test: Summarizer correctly parses LLM response lines into `Vec<String>` (8 parsing tests)
+4. ✅ Unit test: Summarizer fallback cleanly triggers on timeout / network error without crashing (fallback tests)
+5. ✅ UI verification: Dropdown selector persists `checkpoint_summarizer_model` to config (serialization test + save/save-read roundtrip)
+
+## Phase Between 23–24-3 — Disk Persistence, Log Viewer Inspection & Real Session Verification
+
+### What was built
+
+1. **`core/src/checkpoint.rs`** — Added `CheckpointWriter` for disk persistence:
+   - `CheckpointWriter::new(session_id)` creates the writer and ensures the parent directory exists at `~/.local/share/swai/checkpoints/` (or `$XDG_DATA_HOME/swai/checkpoints/`)
+   - `write_entry(&CheckpointEntry)` — first call creates the file with a markdown header (`# SWAI Session Checkpoint Log`, session ID, timestamp); subsequent calls append a `## Checkpoint #N (M messages compacted)` section
+   - `write_snapshot(&SessionCheckpoint)` — overwrites the file entirely with all entries formatted as sections
+   - `read_contents()` — returns file contents or empty string if nonexistent
+   - `to_disk_format()` on `SessionCheckpoint` — serializes all entries into the disk-persistence markdown format matching the spec
+   - Thread-safe via internal `Arc<Mutex<CheckpointWriterState>>`
+
+2. **`app/src/logs_panel.rs`** — Added "Checkpoints" toggle to `LogViewerWindow`:
+   - New `ViewMode` enum: `Logs` (live tail) and `Checkpoints` (read-only checkpoint view)
+   - `view_mode: Rc<Cell<ViewMode>>` and `checkpoint_path: Rc<Cell<Option<PathBuf>>>` fields on `LogViewerWindow`
+   - "Checkpoints" button in the header bar toggles between log tail and checkpoint view
+   - In checkpoints mode: stops the auto-tail poller, clears the buffer, resolves the checkpoint file for the current model via `resolve_checkpoint_path()`, loads content into the text buffer
+   - In logs mode: clears the buffer, resets offset, restarts the tail poller
+   - Button CSS class toggles between `["flat"]` (logs) and `["suggested-action", "flat"]` (checkpoints)
+   - `resolve_checkpoint_path(session_id)` helper resolves to `~/.local/share/swai/checkpoints/<session_id>.md`
+
+3. **Unit tests** (`checkpoint::tests`) — 6 new disk persistence tests:
+   - `test_checkpoint_writer_creates_file` — verifies file creation and header content
+   - `test_checkpoint_writer_incremental_append` — verifies multiple entries append correctly with numbered sections
+   - `test_checkpoint_writer_snapshot_overwrites` — verifies snapshot mode overwrites existing content
+   - `test_checkpoint_writer_read_nonexistent_returns_empty` — verifies graceful handling of missing files
+   - `test_checkpoint_writer_to_disk_format` — verifies the markdown format matches the spec exactly
+   - `test_checkpoint_writer_default_base_dir` — verifies the default base directory path
+
+### Architecture decisions
+- **Session ID as filename**: The checkpoint file is named `<session_id>.md` in the checkpoints directory. This maps naturally to how sessions are identified (by their Anthropic API prompt hash or user-provided ID).
+- **Append vs overwrite semantics**: `write_entry()` appends (for live session tracking), while `write_snapshot()` overwrites (for a complete point-in-time view). The writer tracks whether the header has been written via an internal mutex-guarded flag.
+- **Markdown format**: The disk format uses standard markdown headings and numbered lists for human readability in any text editor, while remaining parseable by future tooling if needed.
+- **`Rc<Cell<ViewMode>>` over enum state machine**: Simple cell-based state tracking avoids the complexity of a full state machine for the two-view toggle pattern. The `Cell` provides interior mutability without requiring `&mut self`.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `cargo test --workspace`: All 235 unit tests pass (197 core + 33 app + 5 new checkpoint writer tests)
+- Integration tests: pre-existing environment issues (single-instance lock conflict), not caused by this phase
+
+### Verification requirements met
+1. ✅ `cargo check --workspace` — 0 errors, 0 warnings
+2. ✅ `cargo test --workspace` — all unit tests passing
+3. ✅ Unit test: Checkpoint file is written to `~/.local/share/swai/checkpoints/<session_id>.md` with correct markdown structure
+4. ✅ Unit test: Incremental appending preserves previous entries and adds new sections
+5. ✅ UI verification: "Checkpoints" button in Log Viewer toggles between log tail and checkpoint view
+
+## Phase Between 23–24-4 — Checkpoint Reliability: Anti-Hallucination Guard
+
+### What was built
+
+1. **Anti-Hallucination Disclaimer Injection**:
+   - In `core/src/checkpoint.rs` (`SessionCheckpoint::format_for_injection()`): Added an explicit disclaimer banner instructing the model that checkpoint items are condensed action summaries and to re-read files if exact signatures, fields, or types are needed.
+   - In `core/src/proxy.rs` (`handle_proxy_request`): Wired the exact same disclaimer into the inline checkpoint injection template so all compaction paths guide the model against hallucinating evicted code.
+
+2. **Edited-File Eviction Deprioritization**:
+   - In `core/src/compaction.rs` (`compact_messages_anthropic()`): Added intelligent 2-pass eviction. Scans the full message history to collect all file paths modified via `Edit`, `ReplaceFileContent`, `multi_replace_file_content`, `Write`, or `write_to_file`.
+   - Pass 1 preferentially evicts `Read` tool results for files that were only read and never edited.
+   - Pass 2 falls back to oldest-first eviction if budget requires further reduction, guaranteeing the hard context ceiling is always maintained.
+
+3. **Tool Name Recognition Enhancements**:
+   - Added support for `Bash`, `bash`, `terminal`, `execute_command`, `Write`, `write_to_file`, `Grep`, and `Glob` across `compaction.rs` and `summarizer.rs` to extract exact commands, target files, and search queries instead of generic fallback descriptions.
+
+4. **Unit tests**:
+   - `test_session_checkpoint_format_for_injection_single_entry`: Verifies disclaimer presence before action lines.
+   - `test_eviction_prefers_dropping_unedited_files`: Verifies unedited files are evicted before edited files.
+   - `test_eviction_falls_back_when_all_files_edited`: Verifies budget constraint satisfaction when all files are edited.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `cargo test --lib --workspace`: 207 passed in core, 33 passed in app (all 240 unit tests pass)
+

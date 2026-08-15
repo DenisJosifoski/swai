@@ -21,6 +21,8 @@ target
 *.txt
 *.tar.gz
 *.AppImage
+*.patch
+/REPORT.md
 
 
 # RustRover

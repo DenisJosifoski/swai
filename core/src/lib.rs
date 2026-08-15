@@ -11,6 +11,9 @@ pub mod proxy;
 pub mod reconciler;
 pub mod single_instance;
 pub mod autostart;
+pub mod checkpoint;
+pub mod compaction;
+pub mod summarizer;
 
 use config::Config;
 use health_monitor::HealthMonitor;
