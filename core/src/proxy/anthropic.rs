@@ -14,8 +14,8 @@ pub fn is_synthetic_prompt(text: &str) -> bool {
 /// Process Anthropic `/v1/messages` payloads:
 /// - Remap model ID to claude-sonnet-4-5
 /// - Perform context compaction when payload threatens context budget
-/// - Persist session checkpoints
-/// - Inject checkpoint summaries and anti-hallucination reminders
+/// - Persist session checkpoints with cumulative deduplication
+/// - Inject full cumulative checkpoint summaries and anti-hallucination reminders
 pub fn process_anthropic_payload(
     json_val: &mut serde_json::Value,
     request_body_len: usize,
@@ -31,8 +31,7 @@ pub fn process_anthropic_payload(
         obj.insert("model".to_string(), serde_json::Value::String("claude-sonnet-4-5".to_string()));
     }
 
-    // Only trigger compaction when the request payload is ACTUALLY large enough to threaten context limits (> 30KB or > 10 messages AND > 15KB).
-    // Do NOT compact tiny polling turns or small conversational messages just because message count > 4!
+    // Only trigger compaction when the request payload is actually large enough to threaten context limits (> 120KB)
     if let Some(messages_arr) = json_val.get("messages").and_then(|m| m.as_array()).cloned() {
         if request_body_len > 120_000 {
             // Extract initial user prompt objective (skipping any synthetic client blocks)
@@ -77,35 +76,47 @@ pub fn process_anthropic_payload(
                 obj.insert("messages".to_string(), serde_json::Value::Array(remaining));
             }
 
-            // 2. If messages were dropped, write checkpoint to disk and inject checkpoint text
+            // 2. If messages were dropped, update session checkpoint with deduplication
             if !summary_lines.is_empty() {
                 let session_name = state.lock().ok().and_then(|s| {
                     s.active_models.iter().find(|(_, &p)| p == target_port).map(|(id, _)| id.clone())
                 }).unwrap_or_else(|| if !model_id.is_empty() { model_id } else { "swai-session".to_string() });
 
-                if let Ok(writer) = crate::checkpoint::CheckpointWriter::new(&session_name) {
-                    let next_idx = writer.next_checkpoint_index();
+                let writer = crate::checkpoint::CheckpointWriter::new(&session_name).ok();
+                
+                // Load existing session checkpoint to check for duplicates and accumulate entries
+                let mut session = writer.as_ref()
+                    .and_then(|w| w.load_session())
+                    .unwrap_or_else(|| crate::checkpoint::SessionCheckpoint::new(session_name.clone()));
+
+                if let Some(ref obj) = initial_objective {
+                    if session.initial_objective.is_none() {
+                        session.set_initial_objective(obj.clone());
+                    }
+                }
+
+                // Deduplicate: check if the latest summary is identical to the last recorded entry
+                let is_duplicate = session.entries.last().map(|last| {
+                    last.summary_lines == summary_lines
+                }).unwrap_or(false);
+
+                if !is_duplicate {
+                    let next_idx = session.entries.len() + 1;
                     let entry = crate::checkpoint::CheckpointEntry {
                         index: next_idx,
                         timestamp: chrono::Utc::now().to_rfc3339(),
                         summary_lines: summary_lines.clone(),
                     };
-                    let _ = writer.write_entry_with_objective(&entry, initial_objective.as_deref());
+                    if let Some(ref w) = writer {
+                        let _ = w.write_entry_with_objective(&entry, initial_objective.as_deref());
+                    }
+                    session.entries.push(entry);
                 }
 
-                let mut checkpoint_lines = Vec::new();
-                checkpoint_lines.push("[Session checkpoint — earlier work in this conversation, condensed]".to_string());
-                if let Some(ref obj) = initial_objective {
-                    checkpoint_lines.push(format!("Initial Objective: {}", obj));
+                // Inject the FULL cumulative checkpoint formatted with anti-hallucination guard
+                if let Some(checkpoint_text) = session.format_for_injection() {
+                    crate::compaction::inject_checkpoint_into_payload(json_val, &checkpoint_text);
                 }
-                checkpoint_lines.push("Note: this is a condensed action log, not literal file content. If you need exact field names, types, function signatures, or other precise code details from a file listed below, re-read that file — do not reconstruct it from memory.".to_string());
-                for (i, l) in summary_lines.iter().enumerate() {
-                    checkpoint_lines.push(format!("{}. {}", i + 1, l));
-                }
-                checkpoint_lines.push("[End checkpoint — continuing below]".to_string());
-                let checkpoint_text = checkpoint_lines.join("\n");
-
-                crate::compaction::inject_checkpoint_into_payload(json_val, &checkpoint_text);
             }
         }
     }

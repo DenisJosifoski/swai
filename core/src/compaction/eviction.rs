@@ -11,8 +11,14 @@ pub fn compact_messages_anthropic(
         return (Vec::new(), messages.to_vec());
     }
 
-    // ~40k tokens budget (leaves 24k headroom for system prompt, tools & completion)
-    let max_budget_chars = if config.max_tokens > 0 && config.max_tokens < 100_000 { config.max_tokens } else { 140_000 };
+    // ~40k tokens budget (leaves ~24k headroom for system prompt, tools & completion in 64k window)
+    let max_budget_chars = if config.max_tokens > 0 && config.max_tokens < 1000 {
+        config.max_tokens
+    } else if config.max_tokens >= 1000 && config.max_tokens <= 100_000 {
+        config.max_tokens.saturating_mul(4).min(140_000)
+    } else {
+        140_000
+    };
 
     let msg_len = |m: &Value| -> usize {
         serde_json::to_string(m).map(|s| s.len()).unwrap_or(0)
@@ -61,10 +67,7 @@ pub fn compact_messages_anthropic(
         false
     };
 
-    let units = build_eviction_units(messages);
-    let mut dropped_indices = std::collections::HashSet::new();
-
-    // Helper: checks if a message read a plan/spec file that should be preserved
+    // Helper: checks if a message read a plan/spec file that MUST be protected
     let is_plan_file_msg = |m: &Value| -> bool {
         if let Some(arr) = m.get("content").and_then(|c| c.as_array()) {
             for block in arr {
@@ -73,7 +76,8 @@ pub fn compact_messages_anthropic(
                         if matches!(name, "Read" | "read" | "view_file" | "ViewFile") {
                             if let Some(input) = block.get("input") {
                                 if let Some(path) = input.get("file_path").or_else(|| input.get("path")).or_else(|| input.get("TargetFile")).and_then(|p| p.as_str()) {
-                                    if path.contains("PLAN/") || path.ends_with(".md") || path.ends_with("Cargo.toml") {
+                                    // Specifically protect plan and spec documents, not random files
+                                    if path.contains("PLAN/") || path.contains("/spec") || path.ends_with("PHASE24.md") || path.ends_with("MASTER_PLAN.md") {
                                         return true;
                                     }
                                 }
@@ -96,6 +100,9 @@ pub fn compact_messages_anthropic(
         false
     };
 
+    let units = build_eviction_units(messages);
+    let mut dropped_indices = std::collections::HashSet::new();
+
     // Preserve unit 0 (the original user prompt/goal) if messages[0] is a user text message
     // and we have more than 2 units to evict from.
     let is_initial_user_prompt = messages.first().map(|m| {
@@ -108,7 +115,7 @@ pub fn compact_messages_anthropic(
     let start_u_idx = if is_initial_user_prompt && units.len() > 2 { 1 } else { 0 };
     let max_droppable_units = if units.len() > 1 { units.len() - 1 } else { 0 };
 
-    // Pass 1: Evict unedited file units and general message units first
+    // Pass 1: Evict non-critical units (unedited files, exploratory commands, general turns)
     if total_chars > max_budget_chars {
         for u_idx in start_u_idx..max_droppable_units {
             if total_chars <= max_budget_chars {
@@ -124,14 +131,15 @@ pub fn compact_messages_anthropic(
         }
     }
 
-    // Pass 2: Fallback to oldest-first units if budget is still exceeded
+    // Pass 2: If budget is STILL exceeded, drop oldest non-plan units (even if edited), but NEVER drop plan files
     if total_chars > max_budget_chars {
         for u_idx in start_u_idx..max_droppable_units {
             if total_chars <= max_budget_chars {
                 break;
             }
             let unit = &units[u_idx];
-            if !dropped_indices.contains(&unit.0) {
+            let contains_plan = (unit.0..=unit.1).any(|idx| is_plan_file_msg(&messages[idx]));
+            if !dropped_indices.contains(&unit.0) && !contains_plan {
                 for idx in unit.0..=unit.1 {
                     dropped_indices.insert(idx);
                     total_chars = total_chars.saturating_sub(msg_len(&messages[idx]));
@@ -139,7 +147,6 @@ pub fn compact_messages_anthropic(
             }
         }
     }
-
 
     let mut dropped = Vec::new();
     let mut remaining = Vec::new();
@@ -157,7 +164,7 @@ pub fn compact_messages_anthropic(
         Vec::new()
     };
 
-    // Step 2: In remaining messages, truncate any tool_result (string or array of text blocks) that exceeds 12,000 chars (~3.5k tokens)
+    // Step 2: In remaining messages, truncate any large tool_result that exceeds 8,000 chars (~2k tokens)
     for msg in &mut remaining {
         if let Some(arr) = msg.get_mut("content").and_then(|c| c.as_array_mut()) {
             for block in arr {
@@ -165,15 +172,15 @@ pub fn compact_messages_anthropic(
                     if let Some(content_val) = block.get_mut("content") {
                         match content_val {
                             Value::String(s) => {
-                                if s.len() > 12_000 {
-                                    *s = truncate_head_tail(s, 12_000);
+                                if s.len() > 8_000 {
+                                    *s = truncate_head_tail(s, 8_000);
                                 }
                             }
                             Value::Array(blocks) => {
                                 for inner in blocks.iter_mut() {
                                     if let Some(text) = inner.get("text").and_then(|t| t.as_str()) {
-                                        if text.len() > 12_000 {
-                                            let truncated = truncate_head_tail(text, 12_000);
+                                        if text.len() > 8_000 {
+                                            let truncated = truncate_head_tail(text, 8_000);
                                             if let Some(obj) = inner.as_object_mut() {
                                                 obj.insert("text".to_string(), Value::String(truncated));
                                             }
@@ -192,18 +199,15 @@ pub fn compact_messages_anthropic(
     (summary_lines, remaining)
 }
 
-/// Truncate a long text string preserving the head and tail, with a center indicator.
-fn truncate_head_tail(s: &str, limit: usize) -> String {
-    if s.len() <= limit {
-        s.to_string()
-    } else {
-        let head_len = limit / 2;
-        let tail_len = limit / 4;
-        let head: String = s.chars().take(head_len).collect();
-        let tail: String = s.chars().skip(s.chars().count().saturating_sub(tail_len)).collect();
-        let omitted = s.len().saturating_sub(head.len() + tail.len());
-        format!("{}\n\n[... truncated {} characters for context budget ...]\n\n{}", head, omitted, tail)
+fn truncate_head_tail(text: &str, limit: usize) -> String {
+    if text.len() <= limit {
+        return text.to_string();
     }
+    let keep_each = limit / 2;
+    let head: String = text.chars().take(keep_each).collect();
+    let tail_chars: Vec<char> = text.chars().rev().take(keep_each).collect();
+    let tail: String = tail_chars.into_iter().rev().collect();
+    format!("{}\n... [truncated] ...\n{}", head, tail)
 }
 
 /// Inject a checkpoint block into an Anthropic Messages API JSON payload.
@@ -213,7 +217,7 @@ fn truncate_head_tail(s: &str, limit: usize) -> String {
 /// the model context about earlier work that was compacted out of the
 /// conversation history.
 ///
-/// Returns the modified payload, or the original if no checkpoint is available.
+/// Returns whether the checkpoint was successfully injected.
 pub fn inject_checkpoint_into_payload(
     payload: &mut Value,
     checkpoint_text: &str,

@@ -158,6 +158,57 @@ impl CheckpointWriter {
 
     /// Read the checkpoint file contents, returning an empty string if it
     /// does not exist.
+    /// Load existing SessionCheckpoint from disk if present.
+    pub fn load_session(&self) -> Option<SessionCheckpoint> {
+        let content = self.read_contents();
+        if content.is_empty() {
+            return None;
+        }
+
+        let session_id = self.file_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let mut session = SessionCheckpoint::new(session_id);
+
+        let mut current_entry: Option<CheckpointEntry> = None;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("**Initial Objective:** `") {
+                if let Some(end) = trimmed[24..].rfind('`') {
+                    session.initial_objective = Some(trimmed[24..24+end].to_string());
+                }
+            } else if trimmed.starts_with("## Checkpoint #") {
+                if let Some(entry) = current_entry.take() {
+                    session.entries.push(entry);
+                }
+                let idx = session.entries.len() + 1;
+                current_entry = Some(CheckpointEntry {
+                    index: idx,
+                    timestamp: String::new(),
+                    summary_lines: Vec::new(),
+                });
+            } else if let Some(ref mut entry) = current_entry {
+                // Parse lines like "1. Read src/lib.rs"
+                if let Some(dot_pos) = trimmed.find(". ") {
+                    let prefix = &trimmed[..dot_pos];
+                    if prefix.chars().all(|c| c.is_ascii_digit()) {
+                        let text = trimmed[dot_pos + 2..].to_string();
+                        entry.summary_lines.push(text);
+                    }
+                }
+            }
+        }
+
+        if let Some(entry) = current_entry {
+            session.entries.push(entry);
+        }
+
+        Some(session)
+    }
+
     pub fn read_contents(&self) -> String {
         std::fs::read_to_string(&self.file_path).unwrap_or_default()
     }

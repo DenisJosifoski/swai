@@ -355,4 +355,74 @@ mod tests {
         assert!(tool_use_ids.contains("tool_3"));
         assert!(!tool_use_ids.contains("tool_1"));
     }
+
+    #[test]
+    fn test_plan_file_strictly_preserved_across_all_passes() {
+        let mut messages: Vec<Value> = Vec::new();
+
+        // 1. Initial user prompt
+        messages.push(serde_json::json!({
+            "role": "user",
+            "content": "Implement Phase 24"
+        }));
+
+        // 2. Assistant reads PLAN/PHASE24.md
+        messages.push(serde_json::json!({
+            "role": "assistant",
+            "content": [{
+                "type": "tool_use",
+                "name": "Read",
+                "input": {"file_path": "PLAN/PHASE24.md"}
+            }]
+        }));
+        messages.push(serde_json::json!({
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "content": "Spec content here"
+            }]
+        }));
+
+        // 3. Add heavy non-plan exploratory turns that exceed budget
+        for i in 0..15 {
+            messages.push(serde_json::json!({
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "name": "RunCommand",
+                    "input": {"command": format!("find src -name '*.rs' {}", i)}
+                }]
+            }));
+            messages.push(serde_json::json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "content": format!("Large output data string {} with lots of text to blow past budget...", i)
+                }]
+            }));
+        }
+
+        let config = CompactionConfig {
+            enabled: true,
+            max_tokens: 50, // Tiny budget forces Pass 1 and Pass 2
+            summary_length: 100,
+        };
+
+        let (_summary, remaining) = compact_messages_anthropic(&messages, &config);
+
+        // Verify that PLAN/PHASE24.md read was NOT dropped despite tiny budget!
+        let has_plan_read = remaining.iter().any(|msg| {
+            if let Some(arr) = msg.get("content").and_then(|c| c.as_array()) {
+                arr.iter().any(|b| {
+                    b.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                        && b.get("name").and_then(|n| n.as_str()) == Some("Read")
+                        && b.get("input").and_then(|i| i.get("file_path")).and_then(|p| p.as_str()) == Some("PLAN/PHASE24.md")
+                })
+            } else {
+                false
+            }
+        });
+
+        assert!(has_plan_read, "PLAN/PHASE24.md must be strictly preserved across all eviction passes");
+    }
 }
