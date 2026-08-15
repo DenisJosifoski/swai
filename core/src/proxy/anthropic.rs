@@ -34,7 +34,7 @@ pub fn process_anthropic_payload(
     // Only trigger compaction when the request payload is ACTUALLY large enough to threaten context limits (> 30KB or > 10 messages AND > 15KB).
     // Do NOT compact tiny polling turns or small conversational messages just because message count > 4!
     if let Some(messages_arr) = json_val.get("messages").and_then(|m| m.as_array()).cloned() {
-        if request_body_len > 30_000 || (messages_arr.len() > 10 && request_body_len > 15_000) {
+        if request_body_len > 120_000 {
             // Extract initial user prompt objective (skipping any synthetic client blocks)
             let initial_objective: Option<String> = messages_arr.iter()
                 .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))

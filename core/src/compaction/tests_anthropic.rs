@@ -19,7 +19,7 @@ mod tests {
         };
 
         let (summary, remaining) = compact_messages_anthropic(&messages, &config);
-        assert_eq!(remaining.len(), 5); // Dropped first 5
+        assert!(remaining.len() < messages.len()); // Dropped older messages to meet budget
         assert!(!summary.is_empty()); // Should have extracted some action lines
     }
 

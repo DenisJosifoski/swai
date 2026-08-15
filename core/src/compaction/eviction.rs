@@ -12,7 +12,7 @@ pub fn compact_messages_anthropic(
     }
 
     // ~40k tokens budget (leaves 24k headroom for system prompt, tools & completion)
-    let max_budget_chars = 140_000;
+    let max_budget_chars = if config.max_tokens > 0 && config.max_tokens < 100_000 { config.max_tokens } else { 140_000 };
 
     let msg_len = |m: &Value| -> usize {
         serde_json::to_string(m).map(|s| s.len()).unwrap_or(0)
@@ -118,16 +118,6 @@ pub fn compact_messages_anthropic(
         }
     }
 
-    // If message count alone is high and nothing was dropped, drop first half of intermediate units
-    if dropped_indices.is_empty() && messages.len() >= 10 && units.len() >= 2 {
-        let half_count = (units.len() / 2).min(max_droppable_units.saturating_sub(start_u_idx));
-        for u_idx in start_u_idx..(start_u_idx + half_count) {
-            let unit = &units[u_idx];
-            for idx in unit.0..=unit.1 {
-                dropped_indices.insert(idx);
-            }
-        }
-    }
 
     let mut dropped = Vec::new();
     let mut remaining = Vec::new();
