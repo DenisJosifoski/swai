@@ -76,8 +76,9 @@ pub fn compact_messages_anthropic(
                         if matches!(name, "Read" | "read" | "view_file" | "ViewFile") {
                             if let Some(input) = block.get("input") {
                                 if let Some(path) = input.get("file_path").or_else(|| input.get("path")).or_else(|| input.get("TargetFile")).and_then(|p| p.as_str()) {
-                                    // Specifically protect plan and spec documents, not random files
-                                    if path.contains("PLAN/") || path.contains("/spec") || path.ends_with("PHASE24.md") || path.ends_with("MASTER_PLAN.md") {
+                                    // Specifically protect plan and spec documents across all phases
+                                    let is_phase_file = path.rsplit('/').next().map(|f| f.starts_with("PHASE") && f.ends_with(".md")).unwrap_or(false);
+                                    if path.contains("PLAN/") || path.contains("/spec") || is_phase_file || path.ends_with("MASTER_PLAN.md") || path.ends_with("HEADROOM.md") {
                                         return true;
                                     }
                                 }

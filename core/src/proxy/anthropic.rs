@@ -95,17 +95,25 @@ pub fn process_anthropic_payload(
                     }
                 }
 
-                // Deduplicate: check if the latest summary is identical to the last recorded entry
-                let is_duplicate = session.entries.last().map(|last| {
-                    last.summary_lines == summary_lines
-                }).unwrap_or(false);
+                // Per-line deduplication across all existing checkpoint entries
+                let mut existing_lines = std::collections::HashSet::new();
+                for entry in &session.entries {
+                    for line in &entry.summary_lines {
+                        existing_lines.insert(line.clone());
+                    }
+                }
 
-                if !is_duplicate {
+                // Filter out any lines that have already been recorded in previous checkpoints
+                let new_unique_lines: Vec<String> = summary_lines.into_iter()
+                    .filter(|l| !existing_lines.contains(l))
+                    .collect();
+
+                if !new_unique_lines.is_empty() {
                     let next_idx = session.entries.len() + 1;
                     let entry = crate::checkpoint::CheckpointEntry {
                         index: next_idx,
                         timestamp: chrono::Utc::now().to_rfc3339(),
-                        summary_lines: summary_lines.clone(),
+                        summary_lines: new_unique_lines.clone(),
                     };
                     if let Some(ref w) = writer {
                         let _ = w.write_entry_with_objective(&entry, initial_objective.as_deref());

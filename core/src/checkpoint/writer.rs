@@ -176,9 +176,9 @@ impl CheckpointWriter {
 
         for line in content.lines() {
             let trimmed = line.trim();
-            if trimmed.starts_with("**Initial Objective:** `") {
-                if let Some(end) = trimmed[24..].rfind('`') {
-                    session.initial_objective = Some(trimmed[24..24+end].to_string());
+            if let Some(rest) = trimmed.strip_prefix("**Initial Objective:** `") {
+                if let Some(end) = rest.rfind('`') {
+                    session.initial_objective = Some(rest[..end].to_string());
                 }
             } else if trimmed.starts_with("## Checkpoint #") {
                 if let Some(entry) = current_entry.take() {
