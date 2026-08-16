@@ -185,7 +185,10 @@ fn test_recommend_mode_concurrent_when_zero_required() {
 #[test]
 fn test_recommend_mode_sequential_on_impossible_requirement() {
     // u64::MAX can never be satisfied, so we must get Sequential.
-    assert_eq!(crate::council::recommend_mode(u64::MAX), CouncilMode::Sequential);
+    assert_eq!(
+        crate::council::recommend_mode(u64::MAX),
+        CouncilMode::Sequential
+    );
 }
 
 #[test]

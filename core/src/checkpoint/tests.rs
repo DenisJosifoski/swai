@@ -3,7 +3,6 @@ mod tests {
     use crate::checkpoint::*;
     use tempfile::TempDir;
 
-
     #[test]
     fn test_session_checkpoint_new_is_empty() {
         let sc = SessionCheckpoint::new("test-session".to_string());
@@ -115,14 +114,16 @@ mod tests {
         // Use get_or_create to get a mutable reference through the lock.
         {
             let mut sessions = registry.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            sessions.entry("session-a".to_string())
+            sessions
+                .entry("session-a".to_string())
                 .or_insert_with(|| SessionCheckpoint::new("session-a".to_string()))
                 .add_entry(vec!["Action A".to_string()]);
         }
 
         {
             let mut sessions = registry.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            sessions.entry("session-b".to_string())
+            sessions
+                .entry("session-b".to_string())
                 .or_insert_with(|| SessionCheckpoint::new("session-b".to_string()))
                 .add_entry(vec!["Action B1".to_string(), "Action B2".to_string()]);
         }
@@ -138,7 +139,8 @@ mod tests {
 
         {
             let mut sessions = registry.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            sessions.entry("session-x".to_string())
+            sessions
+                .entry("session-x".to_string())
                 .or_insert_with(|| SessionCheckpoint::new("session-x".to_string()))
                 .add_entry(vec!["Something".to_string()]);
         }
@@ -175,14 +177,16 @@ mod tests {
         // Create an empty session (no entries) — modify via direct lock access.
         {
             let mut sessions = registry.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            sessions.entry("empty-session".to_string())
+            sessions
+                .entry("empty-session".to_string())
                 .or_insert_with(|| SessionCheckpoint::new("empty-session".to_string()));
         }
 
         // Create a session with entries.
         {
             let mut sessions = registry.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            sessions.entry("active-session".to_string())
+            sessions
+                .entry("active-session".to_string())
                 .or_insert_with(|| SessionCheckpoint::new("active-session".to_string()))
                 .add_entry(vec!["Something happened".to_string()]);
         }
@@ -197,7 +201,8 @@ mod tests {
     #[test]
     fn test_checkpoint_writer_creates_file() {
         let tmp = tempfile::tempdir().unwrap();
-        let writer = CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "test-session").unwrap();
+        let writer =
+            CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "test-session").unwrap();
 
         let entry = CheckpointEntry {
             index: 1,
@@ -218,16 +223,14 @@ mod tests {
     #[test]
     fn test_checkpoint_writer_incremental_append() {
         let tmp = tempfile::tempdir().unwrap();
-        let writer = CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "append-session").unwrap();
+        let writer =
+            CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "append-session").unwrap();
 
         // First entry creates the file with header.
         let entry1 = CheckpointEntry {
             index: 1,
             timestamp: chrono::Utc::now().to_rfc3339(),
-            summary_lines: vec![
-                "Read src/lib.rs".to_string(),
-                "Edited main.rs".to_string(),
-            ],
+            summary_lines: vec!["Read src/lib.rs".to_string(), "Edited main.rs".to_string()],
         };
         writer.write_entry(&entry1).unwrap();
 
@@ -252,7 +255,8 @@ mod tests {
     #[test]
     fn test_checkpoint_writer_snapshot_overwrites() {
         let tmp = tempfile::tempdir().unwrap();
-        let writer = CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "snapshot-session").unwrap();
+        let writer =
+            CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "snapshot-session").unwrap();
 
         // Write some initial entries via write_entry.
         let entry1 = CheckpointEntry {
@@ -281,7 +285,8 @@ mod tests {
     #[test]
     fn test_checkpoint_writer_read_nonexistent_returns_empty() {
         let tmp = tempfile::tempdir().unwrap();
-        let writer = CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "nonexistent-session").unwrap();
+        let writer =
+            CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "nonexistent-session").unwrap();
         assert_eq!(writer.read_contents(), "");
     }
 
@@ -308,8 +313,10 @@ mod tests {
     fn test_checkpoint_writer_default_base_dir() {
         let base = CheckpointWriter::default_base_dir();
         // Should end with checkpoints/
-        assert!(base.to_string_lossy().ends_with("checkpoints")
-            || base.to_string_lossy().ends_with("checkpoints\\"));
+        assert!(
+            base.to_string_lossy().ends_with("checkpoints")
+                || base.to_string_lossy().ends_with("checkpoints\\")
+        );
     }
 
     #[test]
@@ -317,7 +324,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
 
         // First request / compaction event (creates file)
-        let writer1 = CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "multi-compaction").unwrap();
+        let writer1 =
+            CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "multi-compaction").unwrap();
         let idx1 = writer1.next_checkpoint_index();
         assert_eq!(idx1, 1);
         let entry1 = CheckpointEntry {
@@ -325,10 +333,13 @@ mod tests {
             timestamp: chrono::Utc::now().to_rfc3339(),
             summary_lines: vec!["Read core/src/lib.rs".to_string()],
         };
-        writer1.write_entry_with_objective(&entry1, Some("Build feature X")).unwrap();
+        writer1
+            .write_entry_with_objective(&entry1, Some("Build feature X"))
+            .unwrap();
 
         // Second request / compaction event (fresh writer instance, must NOT overwrite)
-        let writer2 = CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "multi-compaction").unwrap();
+        let writer2 =
+            CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "multi-compaction").unwrap();
         let idx2 = writer2.next_checkpoint_index();
         assert_eq!(idx2, 2);
         let entry2 = CheckpointEntry {
@@ -336,10 +347,13 @@ mod tests {
             timestamp: chrono::Utc::now().to_rfc3339(),
             summary_lines: vec!["Read core/src/config.rs".to_string()],
         };
-        writer2.write_entry_with_objective(&entry2, Some("Build feature X")).unwrap();
+        writer2
+            .write_entry_with_objective(&entry2, Some("Build feature X"))
+            .unwrap();
 
         // Third request / compaction event (fresh writer instance)
-        let writer3 = CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "multi-compaction").unwrap();
+        let writer3 =
+            CheckpointWriter::new_in_dir(tmp.path().to_path_buf(), "multi-compaction").unwrap();
         let idx3 = writer3.next_checkpoint_index();
         assert_eq!(idx3, 3);
         let entry3 = CheckpointEntry {
@@ -347,7 +361,9 @@ mod tests {
             timestamp: chrono::Utc::now().to_rfc3339(),
             summary_lines: vec!["Wrote core/src/feature.rs".to_string()],
         };
-        writer3.write_entry_with_objective(&entry3, Some("Build feature X")).unwrap();
+        writer3
+            .write_entry_with_objective(&entry3, Some("Build feature X"))
+            .unwrap();
 
         let content = writer3.read_contents();
         assert!(content.contains("**Initial Objective:** `Build feature X`"));

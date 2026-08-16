@@ -153,7 +153,11 @@ fn test_execute_auditor_failure_with_skip_fallback() {
     );
 
     match engine.execute("test prompt") {
-        DebateOutcome::Partial { fallback_response, warnings, .. } => {
+        DebateOutcome::Partial {
+            fallback_response,
+            warnings,
+            ..
+        } => {
             assert_eq!(fallback_response, "Generated draft");
             assert!(!warnings.is_empty(), "Expected warning on skipped auditor");
         }
@@ -176,10 +180,7 @@ fn test_execute_generator_failure_with_abort() {
         ..Default::default()
     };
 
-    let engine = CouncilEngine::new(
-        config,
-        MockExecutor::new(vec![]).with_failures(vec![0]),
-    );
+    let engine = CouncilEngine::new(config, MockExecutor::new(vec![]).with_failures(vec![0]));
 
     match engine.execute("test prompt") {
         DebateOutcome::Aborted { reason, .. } => {

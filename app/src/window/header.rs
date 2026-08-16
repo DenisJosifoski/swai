@@ -1,8 +1,8 @@
-use gtk4 as gtk;
-use gtk::prelude::*;
-use gtk::gio::{Menu, SimpleAction};
-use gtk::{Application, Button, HeaderBar};
 use adw::ApplicationWindow;
+use gtk::gio::{Menu, SimpleAction};
+use gtk::prelude::*;
+use gtk::{Application, Button, HeaderBar};
+use gtk4 as gtk;
 use std::sync::{Arc, Mutex};
 
 use swai_core::process_manager::ProcessManager;

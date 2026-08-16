@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 
 mod import_wizard;
 mod logs_panel;
@@ -38,7 +38,9 @@ fn try_handle_cli_args() -> Option<glib::ExitCode> {
         },
         "start" => {
             if args.len() < 3 {
-                eprintln!("Error: 'swai start' requires a model ID (e.g. swai start ornith-1.0-35b)");
+                eprintln!(
+                    "Error: 'swai start' requires a model ID (e.g. swai start ornith-1.0-35b)"
+                );
                 return Some(glib::ExitCode::FAILURE);
             }
             swai_core::ipc::ActionRequest {
@@ -109,7 +111,8 @@ fn main() -> glib::ExitCode {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    let _single_instance_guard = match swai_core::single_instance::SingleInstanceGuard::try_acquire() {
+    let _single_instance_guard = match swai_core::single_instance::SingleInstanceGuard::try_acquire(
+    ) {
         Ok(guard) => guard,
         Err(_) => {
             let dialog = gtk::MessageDialog::new(
@@ -188,16 +191,15 @@ auto_restart_on_context_full = true
         let proxy_state = swai_core::proxy::ProxyState::new();
         let proxy_state = Arc::new(std::sync::Mutex::new(proxy_state));
 
-        let proxy_server = match swai_core::proxy::ProxyServer::new(
-            config.proxy_port(),
-            Arc::clone(&proxy_state),
-        ) {
-            Ok(server) => Some(server),
-            Err(e) => {
-                tracing::warn!("failed to start reverse proxy: {}", e);
-                None
-            }
-        };
+        let proxy_server =
+            match swai_core::proxy::ProxyServer::new(config.proxy_port(), Arc::clone(&proxy_state))
+            {
+                Ok(server) => Some(server),
+                Err(e) => {
+                    tracing::warn!("failed to start reverse proxy: {}", e);
+                    None
+                }
+            };
 
         let main_window = window::MainWindow::new(app, config.clone(), Some(proxy_state.clone()));
         main_window.show();

@@ -16,7 +16,6 @@ mod tests {
         line
     }
 
-
     #[test]
     fn test_handle_request_sync_valid_request() {
         let tmp = TempDir::new().unwrap();
@@ -85,18 +84,29 @@ mod tests {
     /// Minimal ProcessGuard for unit tests — never starts or terminates anything.
     struct DummyGuard;
     impl crate::process_manager::ProcessGuard for DummyGuard {
-        fn setup(_script: &std::path::Path, _port: u16, _log_dir: &std::path::Path) -> Result<Self, crate::process_manager::ProcessError>
+        fn setup(
+            _script: &std::path::Path,
+            _port: u16,
+            _log_dir: &std::path::Path,
+        ) -> Result<Self, crate::process_manager::ProcessError>
         where
             Self: Sized,
         {
             Ok(DummyGuard)
         }
-        fn terminate(&self, _fast_shutdown: bool) -> Result<(), crate::process_manager::ProcessError> {
+        fn terminate(
+            &self,
+            _fast_shutdown: bool,
+        ) -> Result<(), crate::process_manager::ProcessError> {
             Ok(())
         }
     }
 
-    fn make_running_model(_id: &str, _name: &str, _port: u16) -> crate::process_manager::RunningModel {
+    fn make_running_model(
+        _id: &str,
+        _name: &str,
+        _port: u16,
+    ) -> crate::process_manager::RunningModel {
         crate::process_manager::RunningModel {
             id: _id.to_string(),
             guard: Box::new(DummyGuard),
@@ -104,10 +114,7 @@ mod tests {
         }
     }
 
-    fn make_state_with_running(
-        models: Vec<ModelConfig>,
-        running_id: &str,
-    ) -> IpcState {
+    fn make_state_with_running(models: Vec<ModelConfig>, running_id: &str) -> IpcState {
         let config = Config {
             schema_version: 1,
             models: models.clone(),
@@ -116,11 +123,13 @@ mod tests {
         };
         let mut pm = crate::process_manager::ProcessManager::new(config.clone());
         // Find the running model's port.
-        let port = models.iter()
+        let port = models
+            .iter()
             .find(|m| m.id == running_id)
             .map(|m| m.port)
             .unwrap_or(0);
-        let name = models.iter()
+        let name = models
+            .iter()
             .find(|m| m.id == running_id)
             .map(|m| m.name.clone())
             .unwrap_or_default();
@@ -136,30 +145,52 @@ mod tests {
     fn test_resolve_cycle_next_no_running_wraps_to_first() {
         let state = make_test_state(vec![
             ModelConfig {
-                id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                port: 8001, health_timeout_sec: 5,
+                id: "m1".into(),
+                name: "M1".into(),
+                script_path: "/tmp/x".into(),
+                port: 8001,
+                health_timeout_sec: 5,
+                ctx_size: 65_536,
             },
             ModelConfig {
-                id: "m2".into(), name: "M2".into(), script_path: "/tmp/x".into(),
-                port: 8002, health_timeout_sec: 5,
+                id: "m2".into(),
+                name: "M2".into(),
+                script_path: "/tmp/x".into(),
+                port: 8002,
+                health_timeout_sec: 5,
+                ctx_size: 65_536,
             },
         ]);
-        assert_eq!(resolve_cycle_model_id(&state.config, None, "next"), Some("m1".to_string()));
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, None, "next"),
+            Some("m1".to_string())
+        );
     }
 
     #[test]
     fn test_resolve_cycle_prev_no_running_wraps_to_last() {
         let state = make_test_state(vec![
             ModelConfig {
-                id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                port: 8001, health_timeout_sec: 5,
+                id: "m1".into(),
+                name: "M1".into(),
+                script_path: "/tmp/x".into(),
+                port: 8001,
+                health_timeout_sec: 5,
+                ctx_size: 65_536,
             },
             ModelConfig {
-                id: "m2".into(), name: "M2".into(), script_path: "/tmp/x".into(),
-                port: 8002, health_timeout_sec: 5,
+                id: "m2".into(),
+                name: "M2".into(),
+                script_path: "/tmp/x".into(),
+                port: 8002,
+                health_timeout_sec: 5,
+                ctx_size: 65_536,
             },
         ]);
-        assert_eq!(resolve_cycle_model_id(&state.config, None, "prev"), Some("m2".to_string()));
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, None, "prev"),
+            Some("m2".to_string())
+        );
     }
 
     #[test]
@@ -167,22 +198,40 @@ mod tests {
         let state = make_state_with_running(
             vec![
                 ModelConfig {
-                    id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                    port: 8001, health_timeout_sec: 5,
+                    id: "m1".into(),
+                    name: "M1".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8001,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
                 ModelConfig {
-                    id: "m2".into(), name: "M2".into(), script_path: "/tmp/x".into(),
-                    port: 8002, health_timeout_sec: 5,
+                    id: "m2".into(),
+                    name: "M2".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8002,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
                 ModelConfig {
-                    id: "m3".into(), name: "M3".into(), script_path: "/tmp/x".into(),
-                    port: 8003, health_timeout_sec: 5,
+                    id: "m3".into(),
+                    name: "M3".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8003,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
             ],
             "m1",
         );
-        let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"), Some("m2".to_string()));
+        let pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"),
+            Some("m2".to_string())
+        );
     }
 
     #[test]
@@ -190,18 +239,32 @@ mod tests {
         let state = make_state_with_running(
             vec![
                 ModelConfig {
-                    id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                    port: 8001, health_timeout_sec: 5,
+                    id: "m1".into(),
+                    name: "M1".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8001,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
                 ModelConfig {
-                    id: "m2".into(), name: "M2".into(), script_path: "/tmp/x".into(),
-                    port: 8002, health_timeout_sec: 5,
+                    id: "m2".into(),
+                    name: "M2".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8002,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
             ],
             "m1",
         );
-        let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "prev"), Some("m2".to_string()));
+        let pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "prev"),
+            Some("m2".to_string())
+        );
     }
 
     #[test]
@@ -209,40 +272,64 @@ mod tests {
         let state = make_state_with_running(
             vec![
                 ModelConfig {
-                    id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                    port: 8001, health_timeout_sec: 5,
+                    id: "m1".into(),
+                    name: "M1".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8001,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
                 ModelConfig {
-                    id: "m2".into(), name: "M2".into(), script_path: "/tmp/x".into(),
-                    port: 8002, health_timeout_sec: 5,
+                    id: "m2".into(),
+                    name: "M2".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8002,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
             ],
             "m2",
         );
-        let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"), Some("m1".to_string()));
+        let pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"),
+            Some("m1".to_string())
+        );
     }
 
     #[test]
     fn test_resolve_literal_model_id_returns_id() {
-        let state = make_test_state(vec![
-            ModelConfig {
-                id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                port: 8001, health_timeout_sec: 5,
-            },
-        ]);
-        assert_eq!(resolve_cycle_model_id(&state.config, None, "m1"), Some("m1".to_string()));
+        let state = make_test_state(vec![ModelConfig {
+            id: "m1".into(),
+            name: "M1".into(),
+            script_path: "/tmp/x".into(),
+            port: 8001,
+            health_timeout_sec: 5,
+            ctx_size: 65_536,
+        }]);
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, None, "m1"),
+            Some("m1".to_string())
+        );
     }
 
     #[test]
     fn test_resolve_unknown_literal_returns_none() {
-        let state = make_test_state(vec![
-            ModelConfig {
-                id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                port: 8001, health_timeout_sec: 5,
-            },
-        ]);
-        assert_eq!(resolve_cycle_model_id(&state.config, None, "nonexistent"), None);
+        let state = make_test_state(vec![ModelConfig {
+            id: "m1".into(),
+            name: "M1".into(),
+            script_path: "/tmp/x".into(),
+            port: 8001,
+            health_timeout_sec: 5,
+            ctx_size: 65_536,
+        }]);
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, None, "nonexistent"),
+            None
+        );
     }
 
     #[test]
@@ -254,17 +341,22 @@ mod tests {
 
     #[test]
     fn test_dispatch_status_no_active_model() {
-        let state = make_test_state(vec![
-            ModelConfig {
-                id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                port: 8001, health_timeout_sec: 5,
-            },
-        ]);
+        let state = make_test_state(vec![ModelConfig {
+            id: "m1".into(),
+            name: "M1".into(),
+            script_path: "/tmp/x".into(),
+            port: 8001,
+            health_timeout_sec: 5,
+            ctx_size: 65_536,
+        }]);
         let req = ActionRequest {
             action: "status".to_string(),
             data: None,
         };
-        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         assert_eq!(resp.message, "No active model");
@@ -275,12 +367,20 @@ mod tests {
         let state = make_state_with_running(
             vec![
                 ModelConfig {
-                    id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                    port: 8001, health_timeout_sec: 5,
+                    id: "m1".into(),
+                    name: "M1".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8001,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
                 ModelConfig {
-                    id: "m2".into(), name: "M2".into(), script_path: "/tmp/x".into(),
-                    port: 8002, health_timeout_sec: 5,
+                    id: "m2".into(),
+                    name: "M2".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8002,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
             ],
             "m1",
@@ -290,13 +390,19 @@ mod tests {
             action: "switch".to_string(),
             data: Some(serde_json::json!({"model_id": "next"})),
         };
-        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         assert!(resp.message.contains("Switched to 'M2'"));
 
         // Verify that resolve_cycle_model_id resolved to m2.
-        assert_eq!(resolve_cycle_model_id(&state.config, Some("m1"), "next"), Some("m2".to_string()));
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, Some("m1"), "next"),
+            Some("m2".to_string())
+        );
     }
 
     #[test]
@@ -304,12 +410,20 @@ mod tests {
         let state = make_state_with_running(
             vec![
                 ModelConfig {
-                    id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                    port: 8001, health_timeout_sec: 5,
+                    id: "m1".into(),
+                    name: "M1".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8001,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
                 ModelConfig {
-                    id: "m2".into(), name: "M2".into(), script_path: "/tmp/x".into(),
-                    port: 8002, health_timeout_sec: 5,
+                    id: "m2".into(),
+                    name: "M2".into(),
+                    script_path: "/tmp/x".into(),
+                    port: 8002,
+                    health_timeout_sec: 5,
+                    ctx_size: 65_536,
                 },
             ],
             "m2",
@@ -319,13 +433,19 @@ mod tests {
             action: "switch".to_string(),
             data: Some(serde_json::json!({"model_id": "prev"})),
         };
-        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         assert!(resp.message.contains("Switched to 'M1'"));
 
         // Verify that resolve_cycle_model_id resolved to m1.
-        assert_eq!(resolve_cycle_model_id(&state.config, Some("m2"), "prev"), Some("m1".to_string()));
+        assert_eq!(
+            resolve_cycle_model_id(&state.config, Some("m2"), "prev"),
+            Some("m1".to_string())
+        );
     }
 
     #[test]
@@ -335,7 +455,10 @@ mod tests {
             action: "foobar".to_string(),
             data: None,
         };
-        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "error");
         assert!(resp.message.contains("unknown action"));
@@ -348,7 +471,10 @@ mod tests {
             action: "switch".to_string(),
             data: Some(serde_json::json!({})),
         };
-        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "error");
         assert!(resp.message.contains("missing model_id"));
@@ -361,7 +487,10 @@ mod tests {
             action: "switch".to_string(),
             data: Some(serde_json::json!({"model_id": "ghost"})),
         };
-        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "error");
         assert!(resp.message.contains("not found"));
@@ -369,17 +498,22 @@ mod tests {
 
     #[test]
     fn test_dispatch_list_returns_models() {
-        let state = make_test_state(vec![
-            ModelConfig {
-                id: "m1".into(), name: "M1".into(), script_path: "/tmp/x".into(),
-                port: 8001, health_timeout_sec: 5,
-            },
-        ]);
+        let state = make_test_state(vec![ModelConfig {
+            id: "m1".into(),
+            name: "M1".into(),
+            script_path: "/tmp/x".into(),
+            port: 8001,
+            health_timeout_sec: 5,
+            ctx_size: 65_536,
+        }]);
         let req = ActionRequest {
             action: "list".to_string(),
             data: None,
         };
-        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         let data = resp.data.unwrap();
@@ -400,7 +534,10 @@ mod tests {
             action: "stop".to_string(),
             data: None,
         };
-        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pm = state
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         // Proxy should be cleared.

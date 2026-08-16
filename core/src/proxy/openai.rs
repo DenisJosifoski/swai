@@ -74,10 +74,7 @@ pub fn convert_responses_input_to_messages(input: &serde_json::Value) -> Vec<ser
         serde_json::Value::Array(items) => {
             for item in items {
                 if let Some(item_obj) = item.as_object() {
-                    let item_type = item_obj
-                        .get("type")
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("");
+                    let item_type = item_obj.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
                     if item_type == "item_reference" {
                         continue;
@@ -89,7 +86,9 @@ pub fn convert_responses_input_to_messages(input: &serde_json::Value) -> Vec<ser
                         .unwrap_or_else(|| {
                             if item_type == "function_call" || item_type == "tool_call" {
                                 "assistant"
-                            } else if item_type == "function_call_output" || item_type == "tool_response" {
+                            } else if item_type == "function_call_output"
+                                || item_type == "tool_response"
+                            {
                                 "tool"
                             } else {
                                 "user"

@@ -97,7 +97,10 @@ pub fn handle_ollama_generate(
         Ok(r) => r,
         Err(e) => {
             debug!("failed to parse ollama generate request: {}", e);
-            let _ = req.respond(error_response(400, &format!("Invalid Ollama request: {}", e)));
+            let _ = req.respond(error_response(
+                400,
+                &format!("Invalid Ollama request: {}", e),
+            ));
             return;
         }
     };
@@ -121,11 +124,9 @@ pub fn handle_ollama_generate(
         }
         let field_bytes = field_name.as_bytes();
         forward_headers.push(
-            Header::from_bytes(field_bytes, header.value.as_bytes())
-                .unwrap_or_else(|_| {
-                    Header::from_bytes(field_bytes, b"")
-                        .expect("header construction should never fail")
-                }),
+            Header::from_bytes(field_bytes, header.value.as_bytes()).unwrap_or_else(|_| {
+                Header::from_bytes(field_bytes, b"").expect("header construction should never fail")
+            }),
         );
     }
 
@@ -160,11 +161,10 @@ pub fn handle_ollama_generate(
             continue;
         }
         response_headers.push(
-            Header::from_bytes(name.as_str(), value.as_bytes())
-                .unwrap_or_else(|_| {
-                    Header::from_bytes(name.as_str(), b"")
-                        .expect("header construction should never fail")
-                }),
+            Header::from_bytes(name.as_str(), value.as_bytes()).unwrap_or_else(|_| {
+                Header::from_bytes(name.as_str(), b"")
+                    .expect("header construction should never fail")
+            }),
         );
     }
 
@@ -204,10 +204,8 @@ pub fn handle_ollama_generate(
                                     .get("role")
                                     .and_then(|r| r.as_str())
                                     .unwrap_or("assistant");
-                                let content = msg
-                                    .get("content")
-                                    .and_then(|c| c.as_str())
-                                    .unwrap_or("");
+                                let content =
+                                    msg.get("content").and_then(|c| c.as_str()).unwrap_or("");
 
                                 let ollama_resp = OllamaGenerateResponse {
                                     model: ollama_req.model,
@@ -252,11 +250,10 @@ pub fn handle_ollama_generate(
                 }
                 let mut resp_headers_with_ct = response_headers.clone();
                 resp_headers_with_ct.push(
-                    Header::from_bytes("content-type", b"application/json")
-                        .unwrap_or_else(|_| {
-                            Header::from_bytes("content-type", b"application/json")
-                                .expect("should never fail")
-                        }),
+                    Header::from_bytes("content-type", b"application/json").unwrap_or_else(|_| {
+                        Header::from_bytes("content-type", b"application/json")
+                            .expect("should never fail")
+                    }),
                 );
                 if let Some(cl) = content_length {
                     resp_headers_with_ct.push(

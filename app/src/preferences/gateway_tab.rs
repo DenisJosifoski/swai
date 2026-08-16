@@ -1,15 +1,17 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
 use gtk::Orientation;
+use gtk4 as gtk;
 
 use adw::prelude::*;
 use adw::ExpanderRow;
 
-use swai_core::config::Config;
 use std::path::PathBuf;
 use std::process::Command;
+use swai_core::config::Config;
 
-use super::client_expanders::{build_claude_cli_expander, build_claude_desktop_expander, build_codex_expander};
+use super::client_expanders::{
+    build_claude_cli_expander, build_claude_desktop_expander, build_codex_expander,
+};
 
 pub fn copy_to_clipboard(text: &str) {
     if let Some(display) = adw::gdk::Display::default() {

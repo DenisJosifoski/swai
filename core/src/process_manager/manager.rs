@@ -1,5 +1,5 @@
-use std::net::TcpStream;
 use crate::health_monitor::HealthMonitor;
+use std::net::TcpStream;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
@@ -59,7 +59,12 @@ impl ProcessManager {
     /// Returns `Err` if the model is not found in config.
     pub fn remove_model(&mut self, id: &str) -> Result<(), String> {
         // If the model is currently running, stop it first.
-        if self.running_models.iter().position(|m| m.id == id).is_some() {
+        if self
+            .running_models
+            .iter()
+            .position(|m| m.id == id)
+            .is_some()
+        {
             info!("stopping model '{}' before removal", id);
             // Use graceful shutdown (not fast) — deletion isn't an emergency.
             if let Err(e) = self.stop_model(id, false) {
@@ -114,11 +119,8 @@ impl ProcessManager {
 
         // Spawn the process (synchronously before entering async context)
         let log_dir = self.config.log_dir();
-        let guard_result = LinuxProcessGuard::setup(
-            &model_config.script_path,
-            model_config.port,
-            &log_dir,
-        );
+        let guard_result =
+            LinuxProcessGuard::setup(&model_config.script_path, model_config.port, &log_dir);
 
         match guard_result {
             Ok(guard) => {
@@ -162,7 +164,10 @@ impl ProcessManager {
             .ok_or_else(|| ProcessError::NotRunning(id.to_string()))?;
 
         // Terminate the process group
-        self.running_models.remove(idx).guard.terminate(fast_shutdown)?;
+        self.running_models
+            .remove(idx)
+            .guard
+            .terminate(fast_shutdown)?;
 
         // Confirm port is free via TCP bind retry (up to 10s)
         Self::wait_port_free(port, Duration::from_secs(10))?;
@@ -225,8 +230,7 @@ impl ProcessManager {
 
     /// Get the primary (first-started) running model, if any.
     pub fn get_primary_model(&self) -> Option<&RunningModel> {
-        self.primary_index
-            .and_then(|i| self.running_models.get(i))
+        self.primary_index.and_then(|i| self.running_models.get(i))
     }
 
     /// Get the primary running model id, if any.
@@ -344,7 +348,11 @@ impl ProcessManager {
                     let parts: Vec<&str> = line.split_whitespace().collect();
                     if parts.len() >= 10 {
                         let local_addr = parts[1];
-                        let local_port = u16::from_str_radix(local_addr.split(':').nth(1).unwrap_or_default(), 16).ok();
+                        let local_port = u16::from_str_radix(
+                            local_addr.split(':').nth(1).unwrap_or_default(),
+                            16,
+                        )
+                        .ok();
                         if local_port == Some(port) {
                             // Parse inode to find the PID
                             let inode = parts[9];
@@ -355,11 +363,20 @@ impl ProcessManager {
                                         let fd_path = entry.path().join("fd");
                                         if let Ok(fds) = std::fs::read_dir(&fd_path) {
                                             for fd_entry in fds.flatten() {
-                                                if let Ok(link) = std::fs::read_link(fd_entry.path()) {
-                                                    if link.to_string_lossy().contains(&inode_num.to_string()) {
+                                                if let Ok(link) =
+                                                    std::fs::read_link(fd_entry.path())
+                                                {
+                                                    if link
+                                                        .to_string_lossy()
+                                                        .contains(&inode_num.to_string())
+                                                    {
                                                         // entry.file_name() returns the bare numeric directory name
                                                         // (e.g. "1234"), not a path with a prefix.
-                                                        if let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() {
+                                                        if let Ok(pid) = entry
+                                                            .file_name()
+                                                            .to_string_lossy()
+                                                            .parse::<u32>()
+                                                        {
                                                             return Ok(pid);
                                                         }
                                                     }
@@ -397,7 +414,10 @@ impl ProcessManager {
         self.start_model(id)?;
 
         // Extract the port from config for health monitoring
-        let model_port = self.config.models.iter()
+        let model_port = self
+            .config
+            .models
+            .iter()
             .find(|m| m.id == id)
             .map(|m| m.port);
 
@@ -427,7 +447,12 @@ impl ProcessManager {
         if self.config.models.iter().any(|c| c.name == identifier) {
             // Find the running model that matches this name.
             for model in &self.running_models {
-                if let Some(cfg) = self.config.models.iter().find(|c| c.name == identifier && c.id == model.id) {
+                if let Some(cfg) = self
+                    .config
+                    .models
+                    .iter()
+                    .find(|c| c.name == identifier && c.id == model.id)
+                {
                     return Some(cfg.port);
                 }
             }
@@ -435,4 +460,3 @@ impl ProcessManager {
         None
     }
 }
-

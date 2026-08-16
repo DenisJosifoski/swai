@@ -8,11 +8,11 @@ pub mod header;
 pub mod health;
 pub mod poller;
 pub mod styles;
+#[cfg(test)]
+mod tests;
 pub mod timeout;
 pub mod types;
 pub mod window;
-#[cfg(test)]
-mod tests;
 
 pub use types::ImportMessage;
 pub use window::MainWindow;

@@ -1,4 +1,3 @@
-
 struct PortRegexes {
     /// Matches: PORT="${PORT:-N}", PORT=N, PORT="N", PORT='N', export PORT=N
     var_assign: std::sync::OnceLock<regex::Regex>,
@@ -23,18 +22,15 @@ impl PortRegexes {
         self.var_assign.get_or_init(|| {
             // Use [ \t] instead of \s to avoid matching newlines — since we
             // process line-by-line, a leading space/tab is the only valid prefix.
-            regex::Regex::new(
-                r#"(^|[ \t])(export[ \t]+)?PORT=("([^"]*)"|'([^']*)'|(\d+))"#,
-            )
-            .expect("port var_assign regex must compile")
+            regex::Regex::new(r#"(^|[ \t])(export[ \t]+)?PORT=("([^"]*)"|'([^']*)'|(\d+))"#)
+                .expect("port var_assign regex must compile")
         })
     }
 
     fn long_flag(&self) -> &regex::Regex {
         self.long_flag.get_or_init(|| {
             // Match `--port=N` or `--port N`. The separator is `=` or whitespace.
-            regex::Regex::new(r"--port[= \t]+(\d+)")
-                .expect("port long_flag regex must compile")
+            regex::Regex::new(r"--port[= \t]+(\d+)").expect("port long_flag regex must compile")
         })
     }
 
@@ -63,10 +59,7 @@ impl PortRegexes {
 /// Uses explicit `${1}` / `${2}` capture-group replacement syntax to avoid the
 /// classic `$18091` bug where `$18` would be interpreted as capture group 18
 /// instead of `$1` followed by literal `8`.
-pub fn sync_port_in_script(
-    script_path: &std::path::PathBuf,
-    new_port: u16,
-) -> Result<(), String> {
+pub fn sync_port_in_script(script_path: &std::path::PathBuf, new_port: u16) -> Result<(), String> {
     let new_port_str = new_port.to_string();
 
     // Read current script content.
@@ -180,7 +173,9 @@ fn replace_first(input: &str, re: &regex::Regex, replacement: &str) -> String {
 /// Strategy: prefer groups whose entire match is digits only (most likely the
 /// bare port number), then fall back to any group that parses as u16.
 fn find_port_capture_index(re: &regex::Regex, line: &str) -> usize {
-    let caps = re.captures(line).expect("replace_first called without a match");
+    let caps = re
+        .captures(line)
+        .expect("replace_first called without a match");
 
     // First pass: find groups whose entire text is digits (bare port numbers).
     // This handles long_flag group 1, short_flag group 3, var_assign group 6.

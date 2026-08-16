@@ -1,5 +1,5 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,10 +10,10 @@ use swai_core::config::Config;
 use swai_core::process_manager::ProcessManager;
 use swai_core::proxy::ProxyState;
 
-use crate::logs_panel::LogViewerWindow;
-use crate::model_card::ModelCard;
 use super::health::spawn_health_monitor;
 use super::types::ChannelMessage;
+use crate::logs_panel::LogViewerWindow;
+use crate::model_card::ModelCard;
 
 pub fn wire_card_handlers(
     card: &mut ModelCard,
@@ -39,9 +39,7 @@ pub fn wire_card_handlers(
         let model_id = model_id_toggle;
 
         card.set_toggle_handler(move |on| {
-            let proxy_for_handler = proxy_for_toggle.as_ref()
-                .as_ref()
-                .map(Arc::clone);
+            let proxy_for_handler = proxy_for_toggle.as_ref().as_ref().map(Arc::clone);
             let cards_inner = cards_inner.borrow();
             if on {
                 let target_card = match cards_inner.iter().find(|c| c.config().id == model_id) {
@@ -86,7 +84,8 @@ pub fn wire_card_handlers(
                         if running_count < max_concurrent {
                             pm_lock.start_model(&bg_model_id)
                         } else {
-                            let primary_id = pm_lock.get_primary_model_id().unwrap_or("").to_string();
+                            let primary_id =
+                                pm_lock.get_primary_model_id().unwrap_or("").to_string();
                             if !primary_id.is_empty() {
                                 pm_lock.switch_model(&primary_id, &bg_model_id)
                             } else {
@@ -110,14 +109,18 @@ pub fn wire_card_handlers(
 
                     if is_ok {
                         if let Some(ref proxy) = proxy_for_handler {
-                            let running = pm_thread.lock()
+                            let running = pm_thread
+                                .lock()
                                 .ok()
                                 .map(|pm| pm.running_model_ports())
                                 .unwrap_or_default();
-                            proxy.lock().unwrap_or_else(|e| {
-                                tracing::error!("proxy state lock poisoned");
-                                e.into_inner()
-                            }).sync_models(running);
+                            proxy
+                                .lock()
+                                .unwrap_or_else(|e| {
+                                    tracing::error!("proxy state lock poisoned");
+                                    e.into_inner()
+                                })
+                                .sync_models(running);
                         }
                     }
 
@@ -153,10 +156,13 @@ pub fn wire_card_handlers(
                     if is_ok {
                         if let Some(ref proxy) = proxy_thread {
                             let running = pm_lock.running_model_ports();
-                            proxy.lock().unwrap_or_else(|e| {
-                                tracing::error!("proxy state lock poisoned");
-                                e.into_inner()
-                            }).sync_models(running);
+                            proxy
+                                .lock()
+                                .unwrap_or_else(|e| {
+                                    tracing::error!("proxy state lock poisoned");
+                                    e.into_inner()
+                                })
+                                .sync_models(running);
                         }
                     }
                 });
@@ -174,9 +180,7 @@ pub fn wire_card_handlers(
         let model_id = model_id_restart;
 
         card.restart_button.connect_clicked(move |_| {
-            let proxy_thread = proxy_for_restart.as_ref()
-                .as_ref()
-                .map(Arc::clone);
+            let proxy_thread = proxy_for_restart.as_ref().as_ref().map(Arc::clone);
             let cards_inner = cards_restart.borrow();
             let target = match cards_inner.iter().find(|c| c.config().id == model_id) {
                 Some(c) => c,
@@ -236,14 +240,18 @@ pub fn wire_card_handlers(
 
                 if is_ok {
                     if let Some(ref proxy) = proxy_restart_thread {
-                        let running = pm_thread.lock()
+                        let running = pm_thread
+                            .lock()
                             .ok()
                             .map(|pm| pm.running_model_ports())
                             .unwrap_or_default();
-                        proxy.lock().unwrap_or_else(|e| {
-                            tracing::error!("proxy state lock poisoned");
-                            e.into_inner()
-                        }).sync_models(running);
+                        proxy
+                            .lock()
+                            .unwrap_or_else(|e| {
+                                tracing::error!("proxy state lock poisoned");
+                                e.into_inner()
+                            })
+                            .sync_models(running);
                     }
                 }
 

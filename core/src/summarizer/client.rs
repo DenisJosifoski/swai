@@ -42,11 +42,13 @@ pub fn parse_summarizer_response(text: &str) -> Vec<String> {
         .map(|line| {
             let trimmed = line.trim();
             // Strip leading bullet markers.
-            let cleaned = if trimmed.starts_with('-') || trimmed.starts_with('*') || trimmed.starts_with('•') {
-                trimmed[1..].trim()
-            } else {
-                trimmed
-            };
+            let cleaned =
+                if trimmed.starts_with('-') || trimmed.starts_with('*') || trimmed.starts_with('•')
+                {
+                    trimmed[1..].trim()
+                } else {
+                    trimmed
+                };
             cleaned.to_string()
         })
         .filter(|line| {
@@ -103,7 +105,8 @@ pub fn call_summarizer(
         return Err(format!("summarizer returned HTTP {}: {}", status, body));
     }
 
-    let body_bytes = response.bytes()
+    let body_bytes = response
+        .bytes()
         .map_err(|e| format!("failed to read summarizer response body: {}", e))?;
     let json: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| format!("failed to parse summarizer response JSON: {}", e))?;
@@ -120,4 +123,3 @@ pub fn call_summarizer(
 
     Ok(parse_summarizer_response(text))
 }
-

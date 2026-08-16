@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
 use crate::process_manager::ProcessManager;

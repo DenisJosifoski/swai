@@ -1,11 +1,10 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 
 use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-
 
 use super::poller::{resolve_checkpoint_path, resolve_log_file, start_tail_poller};
 use super::types::ViewMode;
@@ -90,27 +89,19 @@ impl LogViewerWindow {
         }
 
         // Clear button — empties the log file and the TextView.
-        let clear_btn = gtk::Button::builder()
-            .label("Clear")
-            .build();
+        let clear_btn = gtk::Button::builder().label("Clear").build();
         clear_btn.set_css_classes(&["flat"]);
 
         // Export button — opens save dialog to copy log file elsewhere.
-        let export_btn = gtk::Button::builder()
-            .label("Export")
-            .build();
+        let export_btn = gtk::Button::builder().label("Export").build();
         export_btn.set_css_classes(&["flat"]);
 
         // Checkpoints toggle — switches between live log tail and checkpoint view.
-        let checkpoints_btn = gtk::Button::builder()
-            .label("Checkpoints")
-            .build();
+        let checkpoints_btn = gtk::Button::builder().label("Checkpoints").build();
         checkpoints_btn.set_css_classes(&["flat"]);
 
         // Close button — destroys the window and stops the poller.
-        let close_btn = gtk::Button::builder()
-            .label("Close")
-            .build();
+        let close_btn = gtk::Button::builder().label("Close").build();
         close_btn.set_css_classes(&["suggested-action", "flat"]);
 
         header.pack_start(&dropdown);
@@ -209,7 +200,10 @@ impl LogViewerWindow {
                 Some("Export Log File"),
                 Some(&win_export),
                 gtk::FileChooserAction::Save,
-                &[("Cancel", gtk::ResponseType::Cancel), ("Save", gtk::ResponseType::Accept)],
+                &[
+                    ("Cancel", gtk::ResponseType::Cancel),
+                    ("Save", gtk::ResponseType::Accept),
+                ],
             );
             dialog.set_modal(true);
             let path_str = filepath_label_export.text();
@@ -275,10 +269,7 @@ impl LogViewerWindow {
                         checkpoint_path_rc.set(Some(cp_path.clone()));
 
                         // Update filepath label.
-                        filepath_label_cp.set_text(&format!(
-                            "Checkpoints: {}",
-                            cp_path.display()
-                        ));
+                        filepath_label_cp.set_text(&format!("Checkpoints: {}", cp_path.display()));
 
                         // Load checkpoint content into the text buffer.
                         if let Ok(content) = fs::read_to_string(&cp_path) {
@@ -287,7 +278,7 @@ impl LogViewerWindow {
                             text_buffer_cp.set_text(
                                 "No checkpoints recorded yet for this session.\n\n\
                                  Checkpoints are written when message compaction occurs.\n\
-                                 Start a long coding session to trigger compaction."
+                                 Start a long coding session to trigger compaction.",
                             );
                         }
                     }
@@ -334,7 +325,8 @@ impl LogViewerWindow {
             let model = &all_models_for_dropdown[selected_idx];
             tracing::info!(
                 "LogViewer: switching to model '{}' (id={})",
-                model.name, model.id
+                model.name,
+                model.id
             );
 
             // 1. Stop the current auto-tail poller.

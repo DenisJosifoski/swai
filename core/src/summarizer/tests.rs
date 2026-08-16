@@ -7,7 +7,6 @@ mod tests {
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
 
-
     // ─── parse_summarizer_response tests ────────────────────────────────────
 
     #[test]
@@ -257,12 +256,7 @@ mod tests {
     #[test]
     fn test_resolve_route_none_prefers_primary() {
         let running = vec![("primary-model".to_string(), 9081)];
-        let route = resolve_summarizer_route(
-            None,
-            &[],
-            &running,
-            Some(9081),
-        );
+        let route = resolve_summarizer_route(None, &[], &running, Some(9081));
         assert!(route.is_some());
         let r = route.unwrap();
         assert_eq!(r.port, 9081);
@@ -270,12 +264,7 @@ mod tests {
 
     #[test]
     fn test_resolve_route_no_model_available() {
-        let route = resolve_summarizer_route(
-            None,
-            &[],
-            &[],
-            None,
-        );
+        let route = resolve_summarizer_route(None, &[], &[], None);
         assert!(route.is_none());
     }
 
@@ -299,13 +288,7 @@ mod tests {
             }),
         ];
 
-        let lines = summarize_dropped_slice(
-            &dropped,
-            None,
-            &[],
-            &[],
-            None,
-        );
+        let lines = summarize_dropped_slice(&dropped, None, &[], &[], None);
         assert!(!lines.is_empty());
         assert!(lines.contains(&"Read src/lib.rs".to_string()));
     }

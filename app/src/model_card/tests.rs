@@ -23,7 +23,11 @@ mod tests {
     #[test]
     fn test_polling_state() {
         assert!(!PollingState::Inactive.is_active());
-        assert!(PollingState::Active { tokens_used: 100, n_ctx: 1000 }.is_active());
+        assert!(PollingState::Active {
+            tokens_used: 100,
+            n_ctx: 1000
+        }
+        .is_active());
         assert!(PollingState::Error.is_active());
     }
 }

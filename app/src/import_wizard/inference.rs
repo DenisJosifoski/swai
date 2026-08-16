@@ -83,7 +83,9 @@ pub fn infer_name_from_path(path: &PathBuf) -> String {
                 .map(|word| {
                     let mut chars = word.chars();
                     match chars.next() {
-                        Some(c) => c.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
+                        Some(c) => {
+                            c.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+                        }
                         None => String::new(),
                     }
                 })

@@ -1,6 +1,6 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Label, Orientation, ScrolledWindow};
+use gtk4 as gtk;
 
 use crate::model_card::{CardState, ModelCard};
 
@@ -15,7 +15,10 @@ pub fn build_cards_container(cards_box: &GtkBox) -> ScrolledWindow {
 
 pub fn reorder_card_container(cards: &[ModelCard]) {
     for card in cards {
-        if matches!(card.state(), CardState::Ready | CardState::Starting | CardState::Loading) {
+        if matches!(
+            card.state(),
+            CardState::Ready | CardState::Starting | CardState::Loading
+        ) {
             card.widget.set_css_classes(&["card-active"]);
         } else {
             card.widget.set_css_classes(&["card"]);

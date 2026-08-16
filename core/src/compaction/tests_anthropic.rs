@@ -5,7 +5,6 @@ mod tests {
     use crate::compaction::*;
     use serde_json::Value;
 
-
     #[test]
     fn test_compact_enabled_drops_half() {
         let messages: Vec<Value> = (0..10)
@@ -48,7 +47,8 @@ mod tests {
             ]
         });
 
-        let checkpoint_text = "[Session checkpoint — earlier work\n1. Read src/lib.rs\n[End checkpoint]";
+        let checkpoint_text =
+            "[Session checkpoint — earlier work\n1. Read src/lib.rs\n[End checkpoint]";
 
         let injected = inject_checkpoint_into_payload(&mut payload, checkpoint_text);
         assert!(injected);
@@ -195,7 +195,9 @@ mod tests {
         ];
 
         let config = CompactionConfig::default();
-        let (summary, remaining) = compact_messages_anthropic(&messages, &config);
+        let small_budget = ContextBudget::from_ctx_size(16_000); // Small budget to force eviction
+        let (summary, remaining) =
+            compact_messages_with_budget(&messages, &config, Some(&small_budget));
 
         // foo.rs (unedited) should be dropped in summary, bar.rs should be kept in remaining!
         assert!(summary.iter().any(|s| s.contains("Read foo.rs")));
@@ -254,7 +256,9 @@ mod tests {
         ];
 
         let config = CompactionConfig::default();
-        let (summary, remaining) = compact_messages_anthropic(&messages, &config);
+        let small_budget = ContextBudget::from_ctx_size(16_000);
+        let (summary, remaining) =
+            compact_messages_with_budget(&messages, &config, Some(&small_budget));
 
         // Fallback to oldest-first should successfully drop message 0 to meet budget
         assert!(!summary.is_empty());
@@ -322,7 +326,18 @@ mod tests {
         ];
 
         let config = CompactionConfig::default();
-        let (summary, remaining) = compact_messages_anthropic(&messages, &config);
+        // Use a custom budget with small history but only 1 protected recent turn,
+        // so the first pair (foo.rs) can be evicted while keeping the rest.
+        let small_budget = ContextBudget {
+            ctx_tokens: 4_000,
+            max_history_chars: 1_000,
+            compaction_trigger_chars: 2_000,
+            tool_result_max_chars: 8_000,
+            recent_turns_keep: 1,
+            file_reread_compress_threshold: 2,
+        };
+        let (summary, remaining) =
+            compact_messages_with_budget(&messages, &config, Some(&small_budget));
 
         // Pair 1 (foo.rs) should be dropped as an atomic unit
         assert!(!summary.is_empty());
@@ -416,13 +431,19 @@ mod tests {
                 arr.iter().any(|b| {
                     b.get("type").and_then(|t| t.as_str()) == Some("tool_use")
                         && b.get("name").and_then(|n| n.as_str()) == Some("Read")
-                        && b.get("input").and_then(|i| i.get("file_path")).and_then(|p| p.as_str()) == Some("PLAN/PHASE24.md")
+                        && b.get("input")
+                            .and_then(|i| i.get("file_path"))
+                            .and_then(|p| p.as_str())
+                            == Some("PLAN/PHASE24.md")
                 })
             } else {
                 false
             }
         });
 
-        assert!(has_plan_read, "PLAN/PHASE24.md must be strictly preserved across all eviction passes");
+        assert!(
+            has_plan_read,
+            "PLAN/PHASE24.md must be strictly preserved across all eviction passes"
+        );
     }
 }

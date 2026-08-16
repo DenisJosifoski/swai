@@ -48,10 +48,7 @@ impl ProxyServer {
         let client_for_proxy = client.clone();
 
         std::thread::spawn(move || {
-            info!(
-                "reverse proxy started on http://127.0.0.1:{}",
-                proxy_port
-            );
+            info!("reverse proxy started on http://127.0.0.1:{}", proxy_port);
 
             for req in server.incoming_requests() {
                 // Check shutdown signal first
@@ -77,7 +74,12 @@ impl ProxyServer {
     /// Gracefully shut down the proxy server.
     pub fn stop(&self) {
         self.shutdown_flag.store(true, Ordering::SeqCst);
-        if let Some(tx) = self.stop_tx.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(tx) = self
+            .stop_tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
             let _ = tx.send(());
         }
         // Ping the proxy port to instantly unblock tiny_http's accept() loop.

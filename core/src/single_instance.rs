@@ -37,7 +37,9 @@ impl SingleInstanceGuard {
         }
 
         info!("single-instance guard acquired");
-        Ok(Self { instance: Some(instance) })
+        Ok(Self {
+            instance: Some(instance),
+        })
     }
 
     /// Release the single-instance lock.
@@ -77,6 +79,9 @@ mod tests {
     #[test]
     fn test_already_running_error_display() {
         let err = AlreadyRunning;
-        assert_eq!(format!("{}", err), "another instance of SWAI is already running");
+        assert_eq!(
+            format!("{}", err),
+            "another instance of SWAI is already running"
+        );
     }
 }

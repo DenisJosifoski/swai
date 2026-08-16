@@ -1,6 +1,6 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
 use gtk::{DropDown, Orientation, ResponseType, SpinButton, Window};
+use gtk4 as gtk;
 
 use adw::{EntryRow, SwitchRow};
 
@@ -40,7 +40,10 @@ impl PreferencesDialog {
         }
         let config = swai_core::config::Config::load().ok()?;
         let idx = (selected as usize).saturating_sub(1);
-        config.configured_models().get(idx).map(|(id, _)| id.to_string())
+        config
+            .configured_models()
+            .get(idx)
+            .map(|(id, _)| id.to_string())
     }
 
     /// Extract the current form values as a serializable struct.
@@ -203,7 +206,8 @@ impl PreferencesDialog {
         config.preferences.max_concurrent_models = max_concurrent;
         config.preferences.checkpoint_summarizer_model = summarizer_model;
 
-        Config::validate(&config, config_path).map_err(|e| format!("Config validation error: {}", e))?;
+        Config::validate(&config, config_path)
+            .map_err(|e| format!("Config validation error: {}", e))?;
 
         let content = toml::to_string_pretty(&config)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;

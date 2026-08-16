@@ -63,9 +63,10 @@ pub fn ipc_send(request: &ActionRequest) -> Result<ActionResponse, IpcClientErro
 
     // Serialize and send the request.
     let body = serde_json::to_string(request).map_err(|e| {
-        IpcClientError::Io(io::Error::other(
-            format!("request serialization error: {}", e),
-        ))
+        IpcClientError::Io(io::Error::other(format!(
+            "request serialization error: {}",
+            e
+        )))
     })?;
 
     use std::io::Write;
@@ -82,9 +83,7 @@ pub fn ipc_send(request: &ActionRequest) -> Result<ActionResponse, IpcClientErro
 
     // Parse the JSON response.
     let response: ActionResponse = serde_json::from_str(&response_buf).map_err(|e| {
-        IpcClientError::Io(io::Error::other(
-            format!("response parse error: {}", e),
-        ))
+        IpcClientError::Io(io::Error::other(format!("response parse error: {}", e)))
     })?;
 
     if response.status == "error" {

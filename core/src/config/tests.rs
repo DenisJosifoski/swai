@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use crate::config::*;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     use std::fs;
@@ -19,10 +19,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn make_temp_config(
-        tmp: &tempfile::TempDir,
-        models: &[(&str, &str, u16)],
-    ) -> PathBuf {
+    fn make_temp_config(tmp: &tempfile::TempDir, models: &[(&str, &str, u16)]) -> PathBuf {
         let config_path = tmp.path().join("config.toml");
         let mut content = String::new();
         content.push_str("[models]\n");
@@ -32,7 +29,9 @@ mod tests {
                 i, id, name, tmp.path().join(format!("{}.sh", id)).display(), port
             ));
         }
-        content.push_str("[global]\nlog_dir = \"\"\nproxy_port = 8080\nauto_restart_on_context_full = true\n");
+        content.push_str(
+            "[global]\nlog_dir = \"\"\nproxy_port = 8080\nauto_restart_on_context_full = true\n",
+        );
         fs::write(&config_path, &content).unwrap();
         config_path
     }
@@ -64,6 +63,7 @@ mod tests {
                     script_path: script1.clone(),
                     port: 8081,
                     health_timeout_sec: 30,
+                    ctx_size: 65_536,
                 },
                 ModelConfig {
                     id: "m2".to_string(),
@@ -71,6 +71,7 @@ mod tests {
                     script_path: script2.clone(),
                     port: 8081, // duplicate
                     health_timeout_sec: 30,
+                    ctx_size: 65_536,
                 },
             ],
             global: GlobalSettings::default(),
@@ -92,6 +93,7 @@ mod tests {
                 script_path: tmp.path().join("nonexistent.sh"),
                 port: 8081,
                 health_timeout_sec: 30,
+                ctx_size: 65_536,
             }],
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
@@ -306,7 +308,10 @@ auto_restart_on_context_full = true
         assert!(serialized.contains("checkpoint_summarizer_model"));
 
         let deserialized: Config = toml::from_str(&serialized).unwrap();
-        assert_eq!(deserialized.checkpoint_summarizer_model(), Some("ornith-35b"));
+        assert_eq!(
+            deserialized.checkpoint_summarizer_model(),
+            Some("ornith-35b")
+        );
     }
 
     #[test]
@@ -320,6 +325,7 @@ auto_restart_on_context_full = true
                     script_path: std::path::PathBuf::from("/dev/null"),
                     port: 8081,
                     health_timeout_sec: 30,
+                    ctx_size: 65_536,
                 },
                 ModelConfig {
                     id: "m2".to_string(),
@@ -327,6 +333,7 @@ auto_restart_on_context_full = true
                     script_path: std::path::PathBuf::from("/dev/null"),
                     port: 8082,
                     health_timeout_sec: 30,
+                    ctx_size: 65_536,
                 },
             ],
             global: GlobalSettings::default(),

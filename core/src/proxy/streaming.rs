@@ -24,7 +24,8 @@ impl Read for StreamingBody {
         let n = self.reader.read(buf)?;
         if n == 0 && self.is_responses_api && !self.sent_completion {
             self.sent_completion = true;
-            let completion_evt = b"\nevent: response.completed\ndata: {\"type\": \"response.completed\"}\n\n";
+            let completion_evt =
+                b"\nevent: response.completed\ndata: {\"type\": \"response.completed\"}\n\n";
             let to_copy = std::cmp::min(buf.len(), completion_evt.len());
             buf[..to_copy].copy_from_slice(&completion_evt[..to_copy]);
             if completion_evt.len() > to_copy {
@@ -72,15 +73,15 @@ impl Read for ResponsesStreamingBody {
 /// Reads the full body, parses each `data:` line, and emits the complete
 /// lifecycle: `response.created` → `output_item.added` / `content_part.added`
 /// → `text.delta` × N → `response.completed`.
-pub fn translate_openai_sse_to_responses(
-    openai_sse_body: &str,
-    model_id: &str,
-) -> Vec<Vec<u8>> {
+pub fn translate_openai_sse_to_responses(openai_sse_body: &str, model_id: &str) -> Vec<Vec<u8>> {
     let mut events: Vec<Vec<u8>> = Vec::new();
 
     // Generate a deterministic response ID from the model + timestamp.
     let response_id = format!("resp_{}", chrono::Utc::now().timestamp());
-    let item_id = format!("msg_{}", &response_id[..std::cmp::min(response_id.len(), 16)]);
+    let item_id = format!(
+        "msg_{}",
+        &response_id[..std::cmp::min(response_id.len(), 16)]
+    );
     let mut seq = 1;
 
     // 1. Emit `response.created` event.
@@ -128,7 +129,11 @@ pub fn translate_openai_sse_to_responses(
                             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                                 if !content.is_empty() {
                                     accumulated_text.push_str(content);
-                                    let escaped = content.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r");
+                                    let escaped = content
+                                        .replace('\\', "\\\\")
+                                        .replace('"', "\\\"")
+                                        .replace('\n', "\\n")
+                                        .replace('\r', "\\r");
                                     let text_delta = format!(
                                         "event: response.output_text.delta\ndata: {{\"type\":\"response.output_text.delta\",\"sequence_number\":{},\"response_id\":\"{}\",\"item_id\":\"{}\",\"output_index\":0,\"content_index\":0,\"delta\":\"{}\"}}\n\n",
                                         seq,
@@ -147,7 +152,11 @@ pub fn translate_openai_sse_to_responses(
         }
     }
 
-    let escaped_full_text = accumulated_text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r");
+    let escaped_full_text = accumulated_text
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r");
 
     // 4. Emit `response.output_text.done` + `response.content_part.done` + `response.output_item.done` + `response.completed`.
     let text_done = format!(

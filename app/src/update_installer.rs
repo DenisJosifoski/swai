@@ -5,7 +5,6 @@
 /// - Replace the local binary at ~/.local/bin/swai
 /// - Refresh desktop shortcuts (if any)
 /// - Send desktop notification on completion
-
 use reqwest::blocking::Client;
 use std::fs;
 use std::io::{self, Write as IoWrite};
@@ -100,7 +99,9 @@ pub fn install_update(github_repo: &str, version: &str) -> UpdateInstallResult {
     let tarball_path = temp_dir.path().join("swai.tar.gz");
     let mut file = match fs::File::create(&tarball_path) {
         Ok(f) => f,
-        Err(e) => return UpdateInstallResult::Error(format!("Failed to create tarball file: {}", e)),
+        Err(e) => {
+            return UpdateInstallResult::Error(format!("Failed to create tarball file: {}", e))
+        }
     };
 
     let mut body = Vec::new();
@@ -183,7 +184,12 @@ pub fn install_update(github_repo: &str, version: &str) -> UpdateInstallResult {
 fn extract_tarball(tarball_path: &std::path::Path, dest_dir: &std::path::Path) -> io::Result<()> {
     // Use the system `tar` command for extraction (more reliable than pure Rust).
     let status = Command::new("tar")
-        .args(["-xzf", &tarball_path.to_string_lossy(), "-C", &dest_dir.to_string_lossy()])
+        .args([
+            "-xzf",
+            &tarball_path.to_string_lossy(),
+            "-C",
+            &dest_dir.to_string_lossy(),
+        ])
         .status()?;
 
     if !status.success() {

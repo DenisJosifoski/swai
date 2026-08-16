@@ -4,7 +4,10 @@ pub fn format_messages_for_summarization(messages: &[Value]) -> String {
     let mut lines = Vec::new();
 
     for msg in messages {
-        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("unknown");
+        let role = msg
+            .get("role")
+            .and_then(|r| r.as_str())
+            .unwrap_or("unknown");
         let content = msg.get("content");
 
         match (role, content) {
@@ -14,8 +17,14 @@ pub fn format_messages_for_summarization(messages: &[Value]) -> String {
             ("user", Some(Value::Array(blocks))) => {
                 for block in blocks {
                     if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
-                        let status = if let Some(is_error) = block.get("isError").and_then(|v| v.as_bool()) {
-                            if is_error { "FAILED" } else { "passed" }
+                        let status = if let Some(is_error) =
+                            block.get("isError").and_then(|v| v.as_bool())
+                        {
+                            if is_error {
+                                "FAILED"
+                            } else {
+                                "passed"
+                            }
                         } else {
                             "passed"
                         };
@@ -34,9 +43,11 @@ pub fn format_messages_for_summarization(messages: &[Value]) -> String {
                         Some("tool_use") => {
                             if let Some(name) = block.get("name").and_then(|n| n.as_str()) {
                                 match name {
-                                    "Read" | "read" | "ViewFile" | "view_file" | "read_file" | "ReadFile" => {
+                                    "Read" | "read" | "ViewFile" | "view_file" | "read_file"
+                                    | "ReadFile" => {
                                         if let Some(input) = block.get("input") {
-                                            if let Some(path) = input.get("file_path")
+                                            if let Some(path) = input
+                                                .get("file_path")
                                                 .or_else(|| input.get("path"))
                                                 .or_else(|| input.get("file"))
                                                 .or_else(|| input.get("AbsolutePath"))
@@ -50,9 +61,14 @@ pub fn format_messages_for_summarization(messages: &[Value]) -> String {
                                             lines.push("[Tool: Read <unknown>]".to_string());
                                         }
                                     }
-                                    "Edit" | "edit" | "ReplaceFileContent" | "replace_file_content" | "multi_replace_file_content" => {
+                                    "Edit"
+                                    | "edit"
+                                    | "ReplaceFileContent"
+                                    | "replace_file_content"
+                                    | "multi_replace_file_content" => {
                                         if let Some(input) = block.get("input") {
-                                            if let Some(path) = input.get("file_path")
+                                            if let Some(path) = input
+                                                .get("file_path")
                                                 .or_else(|| input.get("path"))
                                                 .or_else(|| input.get("TargetFile"))
                                                 .or_else(|| input.get("file"))
@@ -68,7 +84,8 @@ pub fn format_messages_for_summarization(messages: &[Value]) -> String {
                                     }
                                     "Write" | "write" | "write_to_file" | "WriteToFile" => {
                                         if let Some(input) = block.get("input") {
-                                            if let Some(path) = input.get("file_path")
+                                            if let Some(path) = input
+                                                .get("file_path")
                                                 .or_else(|| input.get("path"))
                                                 .or_else(|| input.get("TargetFile"))
                                                 .or_else(|| input.get("file"))
@@ -82,29 +99,41 @@ pub fn format_messages_for_summarization(messages: &[Value]) -> String {
                                             lines.push("[Tool: Wrote <unknown>]".to_string());
                                         }
                                     }
-                                    "Bash" | "bash" | "RunCommand" | "run_command" | "terminal" | "execute_command" => {
+                                    "Bash" | "bash" | "RunCommand" | "run_command" | "terminal"
+                                    | "execute_command" => {
                                         if let Some(input) = block.get("input") {
-                                            if let Some(cmd) = input.get("command")
+                                            if let Some(cmd) = input
+                                                .get("command")
                                                 .or_else(|| input.get("cmd"))
                                                 .or_else(|| input.get("CommandLine"))
                                                 .and_then(|c| c.as_str())
                                             {
-                                                lines.push(format!("[Tool: Ran command: {}]", truncate_text(cmd, 100)));
+                                                lines.push(format!(
+                                                    "[Tool: Ran command: {}]",
+                                                    truncate_text(cmd, 100)
+                                                ));
                                             } else {
-                                                lines.push("[Tool: Ran command: <unknown>]".to_string());
+                                                lines.push(
+                                                    "[Tool: Ran command: <unknown>]".to_string(),
+                                                );
                                             }
                                         } else {
-                                            lines.push("[Tool: Ran command: <unknown>]".to_string());
+                                            lines
+                                                .push("[Tool: Ran command: <unknown>]".to_string());
                                         }
                                     }
                                     "Grep" | "grep" | "grep_search" | "Glob" | "glob" => {
                                         if let Some(input) = block.get("input") {
-                                            if let Some(pat) = input.get("pattern")
+                                            if let Some(pat) = input
+                                                .get("pattern")
                                                 .or_else(|| input.get("query"))
                                                 .or_else(|| input.get("Query"))
                                                 .and_then(|p| p.as_str())
                                             {
-                                                lines.push(format!("[Tool: Searched: {}]", truncate_text(pat, 60)));
+                                                lines.push(format!(
+                                                    "[Tool: Searched: {}]",
+                                                    truncate_text(pat, 60)
+                                                ));
                                             } else {
                                                 lines.push("[Tool: Searched files]".to_string());
                                             }

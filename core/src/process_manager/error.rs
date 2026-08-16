@@ -1,5 +1,5 @@
-use thiserror::Error;
 use crate::config;
+use thiserror::Error;
 
 /// Error types for process management operations.
 #[derive(Debug, Error)]
@@ -40,16 +40,12 @@ pub enum ProcessError {
 
 impl From<config::ConfigError> for ProcessError {
     fn from(e: config::ConfigError) -> Self {
-        ProcessError::Io(std::io::Error::other(
-            format!("config error: {}", e),
-        ))
+        ProcessError::Io(std::io::Error::other(format!("config error: {}", e)))
     }
 }
 
 impl From<toml::de::Error> for ProcessError {
     fn from(e: toml::de::Error) -> Self {
-        ProcessError::Io(std::io::Error::other(
-            format!("toml parse error: {}", e),
-        ))
+        ProcessError::Io(std::io::Error::other(format!("toml parse error: {}", e)))
     }
 }

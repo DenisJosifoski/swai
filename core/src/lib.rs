@@ -3,17 +3,17 @@
 //!
 //! This crate has zero GTK dependency and can be tested with `cargo test`.
 
+pub mod autostart;
+pub mod checkpoint;
+pub mod compaction;
 pub mod config;
+pub mod council;
 pub mod health_monitor;
 pub mod ipc;
 pub mod process_manager;
 pub mod proxy;
 pub mod reconciler;
 pub mod single_instance;
-pub mod autostart;
-pub mod checkpoint;
-pub mod compaction;
-pub mod council;
 pub mod summarizer;
 
 use config::Config;
@@ -27,7 +27,14 @@ use tracing::info;
 /// the single-instance lock alive for the program's lifetime.
 pub fn run(
     config_path: Option<&str>,
-) -> Result<(Config, ReconcileResult, single_instance::SingleInstanceGuard), ProcessError> {
+) -> Result<
+    (
+        Config,
+        ReconcileResult,
+        single_instance::SingleInstanceGuard,
+    ),
+    ProcessError,
+> {
     // Single-instance check — keep the guard alive for the program's lifetime
     let guard = match single_instance::SingleInstanceGuard::try_acquire() {
         Ok(g) => g,
@@ -40,25 +47,23 @@ pub fn run(
         // so serde's #[serde(default)] handles missing fields correctly.
         let path_buf = std::path::PathBuf::from(path);
         let content = std::fs::read_to_string(&path_buf).map_err(|e| {
-            ProcessError::Io(std::io::Error::other(
-                format!("failed to read config: {}", e),
-            ))
+            ProcessError::Io(std::io::Error::other(format!(
+                "failed to read config: {}",
+                e
+            )))
         })?;
         let raw: Config = toml::from_str(&content).map_err(|e| {
-            ProcessError::Io(std::io::Error::other(
-                format!("toml parse error: {}", e),
-            ))
+            ProcessError::Io(std::io::Error::other(format!("toml parse error: {}", e)))
         })?;
         Config::validate(&raw, &path_buf).map_err(|e| {
-            ProcessError::Io(std::io::Error::other(
-                format!("config validation error: {}", e),
-            ))
+            ProcessError::Io(std::io::Error::other(format!(
+                "config validation error: {}",
+                e
+            )))
         })?
     } else {
         Config::load().map_err(|e| {
-            ProcessError::Io(std::io::Error::other(
-                format!("config load error: {}", e),
-            ))
+            ProcessError::Io(std::io::Error::other(format!("config load error: {}", e)))
         })?
     };
 
@@ -92,7 +97,11 @@ pub fn start_and_wait(
 }
 
 /// Stop a running model.
-pub fn stop_model(pm: &mut ProcessManager, model_id: &str, fast_shutdown: bool) -> Result<(), ProcessError> {
+pub fn stop_model(
+    pm: &mut ProcessManager,
+    model_id: &str,
+    fast_shutdown: bool,
+) -> Result<(), ProcessError> {
     pm.stop_model(model_id, fast_shutdown)?;
     Ok(())
 }
@@ -115,8 +124,7 @@ mod tests {
         assert!(result.err().unwrap().to_string().contains("config"));
     }
 
-
-   #[test]
+    #[test]
     fn test_run_with_example_config_returns_guard() {
         // With a valid config path, run() should succeed and return the guard.
         // Bypass the single-instance guard (another SWAI may be running).

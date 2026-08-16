@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-use std::os::unix::net::UnixListener;
     use crate::config::Config;
     use crate::ipc::*;
+    use std::os::unix::net::UnixListener;
 
     use std::io::{BufRead, BufReader};
     use std::os::unix::net::UnixStream;
@@ -53,10 +53,7 @@ use std::os::unix::net::UnixListener;
         let json = r#"{"action":"start","data":{"model_id":"qwen-2.5"}}"#;
         let req: ActionRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.action, "start");
-        assert_eq!(
-            req.data.unwrap()["model_id"].as_str().unwrap(),
-            "qwen-2.5"
-        );
+        assert_eq!(req.data.unwrap()["model_id"].as_str().unwrap(), "qwen-2.5");
     }
 
     #[test]
@@ -115,10 +112,7 @@ use std::os::unix::net::UnixListener;
         let json = serde_json::to_string(&original).unwrap();
         let decoded: ActionRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.action, original.action);
-        assert_eq!(
-            decoded.data.unwrap()["model_id"].as_str().unwrap(),
-            "phi-3"
-        );
+        assert_eq!(decoded.data.unwrap()["model_id"].as_str().unwrap(), "phi-3");
     }
 
     // -- Socket handling tests ------------------------------------------------
@@ -241,11 +235,10 @@ use std::os::unix::net::UnixListener;
     fn test_error_display_messages() {
         assert!(format!("{}", IpcClientError::SocketNotFound).contains("SWAI"));
         assert!(format!("{}", IpcClientError::ConnectionRefused).contains("SWAI"));
-        assert!(format!(
-            "{}",
-            IpcClientError::ServerError("test error".to_string())
-        )
-        .contains("test error"));
+        assert!(
+            format!("{}", IpcClientError::ServerError("test error".to_string()))
+                .contains("test error")
+        );
     }
 
     #[test]

@@ -18,6 +18,10 @@ pub struct ProxyState {
     /// Each entry maps to the port its server is bound to.
     pub active_models: HashMap<String, u16>,
 
+    /// Context window sizes (in tokens) for each running model, keyed by model id.
+    /// Used by the compaction budget manager to scale thresholds dynamically.
+    pub model_ctx_sizes: HashMap<String, usize>,
+
     /// Whether any model is currently in a transitional state (starting / restarting).
     /// When `true`, the proxy returns 503 even if ports are set, because
     /// models on those ports are not yet Ready to serve requests.
@@ -38,6 +42,12 @@ impl ProxyState {
 
     /// Register a running model (id → port mapping) with the proxy state.
     pub fn add_model(&mut self, id: String, port: u16) {
+        self.add_model_with_ctx(id, port, 65_536);
+    }
+
+    /// Register a running model with its context window size.
+    pub fn add_model_with_ctx(&mut self, id: String, port: u16, ctx_size: usize) {
+        self.model_ctx_sizes.insert(id.clone(), ctx_size);
         self.active_models.insert(id, port);
         // First model added becomes the primary.
         if self.primary_port.is_none() {
@@ -89,6 +99,17 @@ impl ProxyState {
         None
     }
 
+    /// Look up the context window size (in tokens) for the model running on the given port.
+    /// Falls back to 65536 (64k) if the model's context size is not known.
+    pub fn ctx_size_for_port(&self, port: u16) -> usize {
+        for (id, &p) in &self.active_models {
+            if p == port {
+                return self.model_ctx_sizes.get(id).copied().unwrap_or(65_536);
+            }
+        }
+        65_536
+    }
+
     /// Mark the proxy as loading (model is starting/restarting).
     pub fn set_loading(&mut self) {
         self.is_loading = true;
@@ -97,6 +118,7 @@ impl ProxyState {
     /// Clear all model state and mark as not loading.
     pub fn clear(&mut self) {
         self.active_models.clear();
+        self.model_ctx_sizes.clear();
         self.primary_port = None;
         self.is_loading = false;
     }

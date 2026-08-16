@@ -1,8 +1,6 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
-use gtk::{
-    Box as GtkBox, Button, Label, Orientation, ProgressBar, Switch,
-};
+use gtk::{Box as GtkBox, Button, Label, Orientation, ProgressBar, Switch};
+use gtk4 as gtk;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -65,7 +63,10 @@ impl ModelCard {
         name_label.set_halign(gtk::Align::Start);
 
         let port_label = Label::new(None);
-        port_label.set_markup(&format!("<span font_weight='bold'>PORT:</span> {}", config.port));
+        port_label.set_markup(&format!(
+            "<span font_weight='bold'>PORT:</span> {}",
+            config.port
+        ));
         port_label.set_css_classes(&["dim-label", "caption"]);
         port_label.set_halign(gtk::Align::Start);
 
@@ -224,7 +225,8 @@ impl ModelCard {
 
         // Color the status label: cyan for Ready, dim for everything else.
         if matches!(&new_state, CardState::Ready) {
-            self.status_label.set_css_classes(&["caption", "accent-label"]);
+            self.status_label
+                .set_css_classes(&["caption", "accent-label"]);
         } else {
             self.status_label.set_css_classes(&["dim-label", "caption"]);
         }
@@ -298,10 +300,7 @@ impl ModelCard {
         self.block_signals();
 
         // Update polling state.
-        *self.polling_state.borrow_mut() = PollingState::Active {
-            tokens_used,
-            n_ctx,
-        };
+        *self.polling_state.borrow_mut() = PollingState::Active { tokens_used, n_ctx };
 
         // Calculate percentage for the progress bar.
         let percentage = if n_ctx > 0 {
@@ -322,7 +321,8 @@ impl ModelCard {
             ("ctx-green", "ctx-text-green")
         };
 
-        self.context_bar.set_css_classes(&["progressbar", bar_class]);
+        self.context_bar
+            .set_css_classes(&["progressbar", bar_class]);
 
         // Format the context label: "32,763 / 262,144 tokens (12.5%)".
         let fmt = |n: usize| -> String {
@@ -344,7 +344,8 @@ impl ModelCard {
             percentage * 100.0
         );
         self.context_label.set_text(&text);
-        self.context_label.set_css_classes(&["caption", label_class]);
+        self.context_label
+            .set_css_classes(&["caption", label_class]);
 
         self.unblock_signals();
     }
@@ -369,7 +370,8 @@ impl ModelCard {
         if predicted_per_second > 0.0 {
             let text = format!("⚡ {:.1} tok/s", predicted_per_second);
             self.speed_label.set_text(&text);
-            self.speed_label.set_css_classes(&["caption", "accent-label"]);
+            self.speed_label
+                .set_css_classes(&["caption", "accent-label"]);
             self.speed_label.set_visible(true);
         } else {
             self.clear_speed();
@@ -400,9 +402,8 @@ impl ModelCard {
         self.block_signals();
         self.restart_button.set_tooltip_text(Some("Restart"));
         let current = self.state.borrow().clone();
-        self.restart_button.set_sensitive(
-            matches!(&current, CardState::Ready | CardState::Error(_)),
-        );
+        self.restart_button
+            .set_sensitive(matches!(&current, CardState::Ready | CardState::Error(_)));
         self.unblock_signals();
     }
 
@@ -421,8 +422,10 @@ impl ModelCard {
     pub fn update_model(&mut self, new_name: &str, new_port: u16) {
         self.name_label.set_text(new_name);
         self.config.name = new_name.to_string();
-        self.port_label
-            .set_markup(&format!("<span font_weight='bold'>PORT:</span> {}", new_port));
+        self.port_label.set_markup(&format!(
+            "<span font_weight='bold'>PORT:</span> {}",
+            new_port
+        ));
         self.config.port = new_port;
     }
 

@@ -18,7 +18,10 @@ mod tests {
         let err = ProcessError::NotRunning("m1".to_string());
         assert!(err.to_string().contains("m1"));
 
-        let err = ProcessError::PortOccupiedByUnknownProcess { pid: 1234, port: 8081 };
+        let err = ProcessError::PortOccupiedByUnknownProcess {
+            pid: 1234,
+            port: 8081,
+        };
         assert!(err.to_string().contains("8081"));
         assert!(err.to_string().contains("1234"));
     }

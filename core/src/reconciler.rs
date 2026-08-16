@@ -7,7 +7,7 @@
 //! OpenAI-compatible or Ollama server found listening.
 
 use crate::config::Config;
-use crate::process_manager::{ProcessError, PortState};
+use crate::process_manager::{PortState, ProcessError};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::net::TcpStream;
@@ -102,12 +102,7 @@ impl Reconciler {
     /// 3. Returns a `Vec<UnmanagedModelInfo>` containing the port and discovered
     ///    model name for every responding server found.
     pub fn probe_unmanaged_servers(&self) -> Vec<UnmanagedModelInfo> {
-        let configured_ports: HashSet<u16> = self
-            .config
-            .models
-            .iter()
-            .map(|m| m.port)
-            .collect();
+        let configured_ports: HashSet<u16> = self.config.models.iter().map(|m| m.port).collect();
 
         let client = probe_http_client();
         let mut results = Vec::new();
@@ -134,21 +129,18 @@ impl Reconciler {
 
                 if let Ok(body) = resp.text() {
                     if let Some(name) = extract_model_name_from_response(&body) {
-                        info!(
-                            "discovered unmanaged model '{}' on port {}",
-                            name, port
-                        );
-                        results.push(UnmanagedModelInfo { port, model_name: name });
+                        info!("discovered unmanaged model '{}' on port {}", name, port);
+                        results.push(UnmanagedModelInfo {
+                            port,
+                            model_name: name,
+                        });
                     }
                 }
             }
         }
 
         if !results.is_empty() {
-            info!(
-                "found {} unmanaged LLM server(s)",
-                results.len()
-            );
+            info!("found {} unmanaged LLM server(s)", results.len());
         }
 
         results
@@ -330,6 +322,7 @@ mod tests {
                 script_path: std::path::PathBuf::from("/dev/null"),
                 port: 8080,
                 health_timeout_sec: 30,
+                ctx_size: 65_536,
             }],
             global: crate::config::GlobalSettings::default(),
             preferences: crate::config::PreferencesConfig::default(),

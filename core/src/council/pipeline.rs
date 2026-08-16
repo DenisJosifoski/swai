@@ -59,7 +59,8 @@ impl DebateState {
                 self.warnings.push(format!("Stage skipped: {error}"));
             }
             FallbackAction::Retry { max_retries } => {
-                self.warnings.push(format!("Stage retried {max_retries} times failed: {error}"));
+                self.warnings
+                    .push(format!("Stage retried {max_retries} times failed: {error}"));
             }
         }
     }
@@ -131,9 +132,14 @@ impl<E: Executor> CouncilEngine<E> {
     }
 
     fn run_auditors(&self, state: &mut DebateState) {
-        let auditors: Vec<&PipelineStage> = self.config.stages.iter()
+        let auditors: Vec<&PipelineStage> = self
+            .config
+            .stages
+            .iter()
             .enumerate()
-            .filter(|(idx, s)| *idx > 0 && (s.role == CouncilRole::Auditor || s.role != CouncilRole::Synthesizer))
+            .filter(|(idx, s)| {
+                *idx > 0 && (s.role == CouncilRole::Auditor || s.role != CouncilRole::Synthesizer)
+            })
             .map(|(_, s)| s)
             .collect();
 
@@ -142,7 +148,10 @@ impl<E: Executor> CouncilEngine<E> {
         }
 
         let draft = state.draft.as_ref().unwrap().clone();
-        let prompt = format!("Draft to audit:\n{draft}\n\nOriginal prompt:\n{}", state.transcript.input_prompt);
+        let prompt = format!(
+            "Draft to audit:\n{draft}\n\nOriginal prompt:\n{}",
+            state.transcript.input_prompt
+        );
 
         for (i, stage) in auditors.iter().enumerate() {
             if state.aborted {
@@ -169,7 +178,11 @@ impl<E: Executor> CouncilEngine<E> {
     }
 
     fn run_synthesizer(&self, state: &mut DebateState) {
-        let synth_stage = self.config.stages.iter().find(|s| s.role == CouncilRole::Synthesizer);
+        let synth_stage = self
+            .config
+            .stages
+            .iter()
+            .find(|s| s.role == CouncilRole::Synthesizer);
         if let Some(stage) = synth_stage {
             if state.aborted {
                 return;

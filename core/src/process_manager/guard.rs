@@ -1,17 +1,16 @@
-use crate::health_monitor::HealthMonitor;
 use super::types::ModelState;
+use crate::health_monitor::HealthMonitor;
+use nix::sys::signal::{SIGINT, SIGKILL};
+use nix::unistd::{getpgid, Pid};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use nix::sys::signal::{SIGINT, SIGKILL};
-use nix::unistd::{getpgid, Pid};
 use tracing::{debug, warn};
 
 use super::error::ProcessError;
-
 
 /// Guard for a running model process.
 pub trait ProcessGuard: Send + Sync {
@@ -49,7 +48,11 @@ impl LinuxProcessGuard {
         let log_file = Self::open_log_file(script, log_dir)?;
 
         // Rotate old log files for this model (keep most recent 20).
-        let script_stem = script.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let script_stem = script
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         Self::rotate_logs(log_dir, &script_stem, 20);
 
         // Keep the parent's copy of the log file fd open for future writes.
@@ -129,14 +132,17 @@ impl LinuxProcessGuard {
         fs::create_dir_all(log_dir).map_err(ProcessError::Io)?;
 
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let filename = format!("{}_{}.log", script.file_stem().unwrap_or_default().to_string_lossy(), timestamp);
+        let filename = format!(
+            "{}_{}.log",
+            script.file_stem().unwrap_or_default().to_string_lossy(),
+            timestamp
+        );
         let log_path = log_dir.join(filename);
 
         // Open with restrictive permissions (0o600) so only the owner can read/write.
         // This hardens against other local users on a shared machine.
         let file = fs::OpenOptions::new()
             .create(true)
-            
             .append(true)
             .mode(0o600)
             .open(&log_path)
@@ -168,10 +174,7 @@ impl LinuxProcessGuard {
         });
 
         // Sort descending by filename (timestamps are zero-padded).
-        entries.sort_by(|a, b| {
-            b.file_name()
-                .cmp(&a.file_name())
-        });
+        entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
 
         // Delete excess files.
         for entry in entries.iter().skip(keep) {
@@ -183,7 +186,11 @@ impl LinuxProcessGuard {
         }
     }
 
-    fn terminate_process_group(pid: Pid, timeout_sec: u16, fast_shutdown: bool) -> Result<(), ProcessError> {
+    fn terminate_process_group(
+        pid: Pid,
+        timeout_sec: u16,
+        fast_shutdown: bool,
+    ) -> Result<(), ProcessError> {
         let raw_pid = pid.as_raw();
 
         // Safety: do not signal pid <= 0 (invalid or kernel process).
@@ -212,32 +219,32 @@ impl LinuxProcessGuard {
         // reads process metadata — it never modifies state or touches the caller's PGID.
         // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         let our_pgid = unsafe { libc::getpgid(0) };
-        if our_pgid >= 0
-            && pgid.as_raw() == our_pgid {
-                return Err(ProcessError::CannotSignalOwnProcessGroup { pid: raw_pid });
-            }
+        if our_pgid >= 0 && pgid.as_raw() == our_pgid {
+            return Err(ProcessError::CannotSignalOwnProcessGroup { pid: raw_pid });
+        }
 
         // Helper closure to signal the process group via -PGID.
-        let signal_target = |target: Pid, sig: nix::sys::signal::Signal| -> Result<(), ProcessError> {
-            let raw = target.as_raw();
-            let sig_raw = sig as libc::c_int;
-            // SAFETY: `libc::kill(-raw, sig_raw)` targets the process group by negating
-            // the PGID per the documented POSIX convention (negative PID means "target
-            // process group"). We guard against invalid PIDs above (raw <= 0 check) and
-            // never signal our own process group (pgid comparison). The syscall is
-            // async-signal-safe and uses only well-defined integer arguments.
-            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
-            let ret = unsafe { libc::kill(-raw, sig_raw) };
-            if ret != 0 {
-                let e = std::io::Error::last_os_error();
-                // ESRCH: process already gone — not an error.
-                if e.raw_os_error() == Some(libc::ESRCH) {
-                    return Ok(());
+        let signal_target =
+            |target: Pid, sig: nix::sys::signal::Signal| -> Result<(), ProcessError> {
+                let raw = target.as_raw();
+                let sig_raw = sig as libc::c_int;
+                // SAFETY: `libc::kill(-raw, sig_raw)` targets the process group by negating
+                // the PGID per the documented POSIX convention (negative PID means "target
+                // process group"). We guard against invalid PIDs above (raw <= 0 check) and
+                // never signal our own process group (pgid comparison). The syscall is
+                // async-signal-safe and uses only well-defined integer arguments.
+                // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
+                let ret = unsafe { libc::kill(-raw, sig_raw) };
+                if ret != 0 {
+                    let e = std::io::Error::last_os_error();
+                    // ESRCH: process already gone — not an error.
+                    if e.raw_os_error() == Some(libc::ESRCH) {
+                        return Ok(());
+                    }
+                    return Err(ProcessError::Io(e));
                 }
-                return Err(ProcessError::Io(e));
-            }
-            Ok(())
-        };
+                Ok(())
+            };
 
         // Step a: Send SIGINT to the process group (llama.cpp natively catches
         // Ctrl+C → immediately unmapping CUDA/ROCm VRAM buffers ~100ms).
@@ -265,7 +272,10 @@ impl LinuxProcessGuard {
         }
 
         // Step c: If still alive, send SIGKILL to the process group.
-        warn!("process group {} didn't shut down gracefully, sending SIGKILL", pgid);
+        warn!(
+            "process group {} didn't shut down gracefully, sending SIGKILL",
+            pgid
+        );
         signal_target(pgid, SIGKILL)?;
 
         // Step d: Wait/reap the child after SIGKILL (up to 5s).
@@ -313,4 +323,3 @@ impl ProcessGuard for LinuxProcessGuard {
         Ok(())
     }
 }
-

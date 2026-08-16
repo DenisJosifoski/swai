@@ -189,7 +189,10 @@ impl DebateTranscript {
 #[derive(Debug, Clone)]
 pub enum DebateOutcome {
     /// All stages completed successfully.
-    Success { final_response: String, transcript: DebateTranscript },
+    Success {
+        final_response: String,
+        transcript: DebateTranscript,
+    },
     /// One or more stages failed; best available draft returned with warnings.
     Partial {
         fallback_response: String,
@@ -197,5 +200,8 @@ pub enum DebateOutcome {
         transcript: DebateTranscript,
     },
     /// Pipeline aborted due to fatal error (e.g. generator failure with Abort fallback).
-    Aborted { reason: String, transcript: DebateTranscript },
+    Aborted {
+        reason: String,
+        transcript: DebateTranscript,
+    },
 }

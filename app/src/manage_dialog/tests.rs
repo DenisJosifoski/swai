@@ -54,8 +54,16 @@ mod tests {
         sync_port_in_script(&script_path, 4567).unwrap();
 
         let content = std::fs::read_to_string(&script_path).unwrap();
-        assert!(content.contains("PORT=4567"), "Unquoted PORT assignment not updated: {}", content);
-        assert!(content.contains("--port 4567"), "Unquoted --port flag not updated: {}", content);
+        assert!(
+            content.contains("PORT=4567"),
+            "Unquoted PORT assignment not updated: {}",
+            content
+        );
+        assert!(
+            content.contains("--port 4567"),
+            "Unquoted --port flag not updated: {}",
+            content
+        );
     }
 
     #[test]
@@ -87,7 +95,10 @@ mod tests {
 
         let content = std::fs::read_to_string(&script_path).unwrap();
         // .lines() strips trailing newlines, so compare without the final \n
-        assert_eq!(content.trim_end_matches('\n'), original.trim_end_matches('\n'),
-            "Script without port assignments should be unchanged");
+        assert_eq!(
+            content.trim_end_matches('\n'),
+            original.trim_end_matches('\n'),
+            "Script without port assignments should be unchanged"
+        );
     }
 }

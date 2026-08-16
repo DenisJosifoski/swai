@@ -14,6 +14,7 @@ pub mod ollama_types;
 pub mod openai;
 pub mod router;
 pub mod server;
+pub mod session_tracker;
 pub mod state;
 pub mod streaming;
 #[cfg(test)]

@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-use serde::Deserialize;
 use super::model::deserialize_optional_pathbuf;
+use serde::Deserialize;
+use std::path::PathBuf;
 
 /// Preferences section — UI-only toggles that don't belong in config.toml.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -1,5 +1,5 @@
-use std::io::{Read, Result as IoResult};
 use super::ollama_types::*;
+use std::io::{Read, Result as IoResult};
 
 /// Streaming body that transforms OpenAI SSE chunks into Ollama NDJSON.
 pub struct OllamaStreamingBody {
@@ -52,10 +52,7 @@ impl Read for OllamaChatStreamingBody {
 }
 
 /// Helper to build Ollama streaming chunks from an OpenAI SSE response body.
-pub fn build_ollama_generate_chunks(
-    model: &str,
-    body_str: &str,
-) -> Vec<Vec<u8>> {
+pub fn build_ollama_generate_chunks(model: &str, body_str: &str) -> Vec<Vec<u8>> {
     let mut chunks = Vec::new();
     for line in body_str.lines() {
         if let Some(data) = line.strip_prefix("data: ") {
@@ -106,10 +103,7 @@ pub fn build_ollama_generate_chunks(
 }
 
 /// Helper to build Ollama chat streaming chunks from an OpenAI SSE response body.
-pub fn build_ollama_chat_chunks(
-    model: &str,
-    body_str: &str,
-) -> Vec<Vec<u8>> {
+pub fn build_ollama_chat_chunks(model: &str, body_str: &str) -> Vec<Vec<u8>> {
     let mut chunks = Vec::new();
     for line in body_str.lines() {
         if let Some(data) = line.strip_prefix("data: ") {

@@ -1,5 +1,5 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -91,11 +91,14 @@ pub fn resolve_checkpoint_path(session_id: &str) -> PathBuf {
     let base = if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
         PathBuf::from(&xdg).join("swai").join("checkpoints")
     } else if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".local").join("share").join("swai").join("checkpoints")
+        PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("swai")
+            .join("checkpoints")
     } else {
         PathBuf::from("checkpoints")
     };
 
     base.join(format!("{}.md", session_id))
 }
-

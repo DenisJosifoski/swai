@@ -1,6 +1,6 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
 use gtk::{FileChooserAction, ResponseType, Window};
+use gtk4 as gtk;
 
 use adw::prelude::*;
 use adw::{EntryRow, PreferencesGroup};
@@ -46,7 +46,8 @@ impl ImportWizard {
         let port_entry = Self::add_port_row(pre_filled_port);
         prefs_group.add(&port_entry);
 
-        let script_path_entry = Self::add_script_path_row(parent, &id_entry, &name_entry, &port_entry);
+        let script_path_entry =
+            Self::add_script_path_row(parent, &id_entry, &name_entry, &port_entry);
         prefs_group.add(&script_path_entry);
 
         let timeout_entry = Self::add_timeout_row();
@@ -109,7 +110,13 @@ impl ImportWizard {
         let port_clone = port_entry.clone();
 
         browse_button.connect_clicked(move |_| {
-            Self::show_file_chooser(&parent_clone, &row_clone, &id_clone, &name_clone, &port_clone);
+            Self::show_file_chooser(
+                &parent_clone,
+                &row_clone,
+                &id_clone,
+                &name_clone,
+                &port_clone,
+            );
         });
 
         row.add_suffix(&browse_button);
@@ -191,10 +198,7 @@ impl ImportWizard {
         chooser.show();
     }
 
-    fn validate_and_import(
-        &self,
-        existing_models: &[Config],
-    ) -> Result<ImportedModel, String> {
+    fn validate_and_import(&self, existing_models: &[Config]) -> Result<ImportedModel, String> {
         let script_text = self.script_path_entry.text();
         if script_text.is_empty() {
             return Err("Script path is required.".into());
@@ -202,10 +206,7 @@ impl ImportWizard {
 
         let script_path = PathBuf::from(script_text.as_str());
         if !script_path.exists() {
-            return Err(format!(
-                "Script file not found: {}",
-                script_path.display()
-            ));
+            return Err(format!("Script file not found: {}", script_path.display()));
         }
 
         let id = self.id_entry.text();
@@ -219,14 +220,14 @@ impl ImportWizard {
         }
 
         let port_str = self.port_entry.text();
-        let port: u16 = port_str.parse().map_err(|_| {
-            format!("Invalid port number: {}", port_str)
-        })?;
+        let port: u16 = port_str
+            .parse()
+            .map_err(|_| format!("Invalid port number: {}", port_str))?;
 
         let timeout_str = self.timeout_entry.text();
-        let health_timeout_sec: u16 = timeout_str.parse().map_err(|_| {
-            format!("Invalid timeout value: {}", timeout_str)
-        })?;
+        let health_timeout_sec: u16 = timeout_str
+            .parse()
+            .map_err(|_| format!("Invalid timeout value: {}", timeout_str))?;
 
         for cfg in existing_models {
             for model in &cfg.models {
@@ -244,10 +245,7 @@ impl ImportWizard {
         for cfg in existing_models {
             for model in &cfg.models {
                 if model.id == id {
-                    return Err(format!(
-                        "Model ID '{}' already exists.",
-                        id
-                    ));
+                    return Err(format!("Model ID '{}' already exists.", id));
                 }
             }
         }

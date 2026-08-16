@@ -4,7 +4,6 @@
 /// - Semantic version parsing and comparison (v-prefixed tags)
 /// - GitHub release API integration via blocking reqwest
 /// - URL opening via `xdg-open` on Linux
-
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use std::process::Command;
@@ -24,7 +23,11 @@ impl Version {
     /// Create a new version from components.
     #[allow(dead_code)]
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
-        Self { major, minor, patch }
+        Self {
+            major,
+            minor,
+            patch,
+        }
     }
 
     /// Compare two versions. Returns Ordering where:
@@ -73,7 +76,11 @@ impl FromStr for Version {
             .parse::<u32>()
             .map_err(|e| format!("Invalid patch version: {}", e))?;
 
-        Ok(Version { major, minor, patch })
+        Ok(Version {
+            major,
+            minor,
+            patch,
+        })
     }
 }
 
@@ -112,10 +119,7 @@ struct GitHubRelease {
 ///
 /// Uses a blocking reqwest client so it can be called from the GTK main thread
 /// (e.g. inside a `gio::idle_add` callback). Returns `UpdateCheckResult`.
-pub fn check_for_updates_blocking(
-    github_repo: &str,
-    current_version: &str,
-) -> UpdateCheckResult {
+pub fn check_for_updates_blocking(github_repo: &str, current_version: &str) -> UpdateCheckResult {
     let client = Client::builder()
         .user_agent("SWAI/1.0 (Linux; GTK4)")
         .timeout(std::time::Duration::from_secs(10))
@@ -177,7 +181,10 @@ pub fn check_for_updates_blocking(
     let latest_version: Version = match tag_name.parse() {
         Ok(v) => v,
         Err(e) => {
-            return UpdateCheckResult::Error(format!("Invalid version in tag '{}': {}", tag_name, e));
+            return UpdateCheckResult::Error(format!(
+                "Invalid version in tag '{}': {}",
+                tag_name, e
+            ));
         }
     };
 

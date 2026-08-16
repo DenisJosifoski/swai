@@ -12,10 +12,10 @@
 
 use std::sync::{Arc, Mutex, OnceLock};
 
-use swai_core::config::Config;
-use swai_core::process_manager::ProcessManager;
 use ksni::blocking::TrayMethods;
 use ksni::{blocking::Handle, Category, MenuItem, Status, ToolTip, Tray};
+use swai_core::config::Config;
+use swai_core::process_manager::ProcessManager;
 
 /// Actions sent from the tray menu back to MainWindow's main loop.
 pub enum WindowAction {
@@ -41,7 +41,6 @@ pub enum TrayAction {
 pub struct QuitState {
     pub should_quit: bool,
 }
-
 
 /// The ksni tray implementation for SWAI.
 ///
@@ -364,7 +363,10 @@ pub fn create_tray(
     match tray.spawn() {
         Ok(handle) => Some(handle),
         Err(e) => {
-            tracing::warn!("failed to spawn ksni tray, continuing without tray icon: {}", e);
+            tracing::warn!(
+                "failed to spawn ksni tray, continuing without tray icon: {}",
+                e
+            );
             None
         }
     }

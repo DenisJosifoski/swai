@@ -1,17 +1,17 @@
-use gtk4 as gtk;
-use gtk::prelude::*;
-use gtk::{MessageDialog, MessageType, Orientation, ResponseType};
 use adw::prelude::*;
 use adw::{AboutDialog, ApplicationWindow};
+use gtk::prelude::*;
+use gtk::{MessageDialog, MessageType, Orientation, ResponseType};
+use gtk4 as gtk;
 use std::sync::{Arc, Mutex};
 
 use swai_core::config::Config;
 use swai_core::process_manager::ProcessManager;
 
-use crate::import_wizard::{ImportedModel, ImportWizard};
+use super::types::ImportMessage;
+use crate::import_wizard::{ImportWizard, ImportedModel};
 use crate::manage_dialog::ManageModelsDialog;
 use crate::preferences::{PreferencesDialog, PreferencesValues};
-use super::types::ImportMessage;
 
 pub fn show_preferences_dialog(
     parent: &ApplicationWindow,
@@ -35,9 +35,8 @@ pub fn show_preferences_dialog(
     };
 
     let dialog = PreferencesDialog::new(parent, &config);
-    let config_path = Config::resolve_path().unwrap_or_else(|| {
-        std::path::PathBuf::from("/nonexistent/config.toml")
-    });
+    let config_path = Config::resolve_path()
+        .unwrap_or_else(|| std::path::PathBuf::from("/nonexistent/config.toml"));
     let parent_clone = parent.clone();
     let pm_clone = Arc::clone(process_manager);
     let dialog_clone = dialog.clone();
@@ -80,7 +79,8 @@ pub fn show_manage_models_dialog(
     import_sender: &std::sync::mpsc::Sender<ImportMessage>,
     process_manager: &Arc<Mutex<ProcessManager>>,
 ) {
-    let dialog = ManageModelsDialog::new(parent, import_sender.clone(), Arc::clone(process_manager));
+    let dialog =
+        ManageModelsDialog::new(parent, import_sender.clone(), Arc::clone(process_manager));
     dialog.widget.connect_response(|d, _| {
         d.destroy();
     });
@@ -99,37 +99,38 @@ pub fn show_add_model_dialog(
     wizard.widget.connect_response(move |d, response| {
         if response == ResponseType::Ok {
             match wizard_clone.try_import() {
-                Ok(imported) => {
-                    match append_model_to_config(&imported) {
-                        Ok(()) => {
-                            tracing::info!(
-                                "Model '{}' added successfully (port {})",
-                                imported.id,
-                                imported.port
-                            );
-                            let model_config = swai_core::config::ModelConfig {
-                                id: imported.id.clone(),
-                                name: imported.name.clone(),
-                                script_path: imported.script_path.clone(),
-                                port: imported.port,
-                                health_timeout_sec: imported.health_timeout_sec,
-                            };
-                            let _ = sender_clone.send(ImportMessage::ModelImported { model: model_config });
-                        }
-                        Err(e) => {
-                            let error_dialog = MessageDialog::new(
-                                Some(&parent_clone),
-                                gtk::DialogFlags::MODAL,
-                                MessageType::Error,
-                                gtk::ButtonsType::Close,
-                                format!("Failed to save model:\n\n{}", e),
-                            );
-                            error_dialog.set_title(Some("SWAI - Save Error"));
-                            error_dialog.connect_response(|ed, _| ed.destroy());
-                            error_dialog.present();
-                        }
+                Ok(imported) => match append_model_to_config(&imported) {
+                    Ok(()) => {
+                        tracing::info!(
+                            "Model '{}' added successfully (port {})",
+                            imported.id,
+                            imported.port
+                        );
+                        let model_config = swai_core::config::ModelConfig {
+                            id: imported.id.clone(),
+                            name: imported.name.clone(),
+                            script_path: imported.script_path.clone(),
+                            port: imported.port,
+                            health_timeout_sec: imported.health_timeout_sec,
+                            ctx_size: 65_536,
+                        };
+                        let _ = sender_clone.send(ImportMessage::ModelImported {
+                            model: model_config,
+                        });
                     }
-                }
+                    Err(e) => {
+                        let error_dialog = MessageDialog::new(
+                            Some(&parent_clone),
+                            gtk::DialogFlags::MODAL,
+                            MessageType::Error,
+                            gtk::ButtonsType::Close,
+                            format!("Failed to save model:\n\n{}", e),
+                        );
+                        error_dialog.set_title(Some("SWAI - Save Error"));
+                        error_dialog.connect_response(|ed, _| ed.destroy());
+                        error_dialog.present();
+                    }
+                },
                 Err(e) => {
                     let error_dialog = MessageDialog::new(
                         Some(&parent_clone),
@@ -151,9 +152,13 @@ pub fn show_add_model_dialog(
 }
 
 pub fn append_model_to_config(model: &ImportedModel) -> Result<(), String> {
-    append_model_to_config_at(&Config::resolve_path().ok_or_else(|| -> String {
-        "No config file found. Please create one at ~/.config/swai/config.toml first.".to_string()
-    })?, model)
+    append_model_to_config_at(
+        &Config::resolve_path().ok_or_else(|| -> String {
+            "No config file found. Please create one at ~/.config/swai/config.toml first."
+                .to_string()
+        })?,
+        model,
+    )
 }
 
 pub fn append_model_to_config_at(
@@ -163,8 +168,8 @@ pub fn append_model_to_config_at(
     let content = std::fs::read_to_string(config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 
-    let mut config: Config = toml::from_str(&content)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let mut config: Config =
+        toml::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))?;
 
     config.models.push(swai_core::config::ModelConfig {
         id: model.id.clone(),
@@ -172,6 +177,7 @@ pub fn append_model_to_config_at(
         script_path: model.script_path.clone(),
         port: model.port,
         health_timeout_sec: model.health_timeout_sec,
+        ctx_size: 65_536,
     });
 
     Config::validate(&config, config_path)
@@ -199,7 +205,8 @@ pub fn save_preferences(
     config.preferences.autostart_on_login = values.autostart_on_login;
     config.preferences.max_concurrent_models = values.max_concurrent_models;
 
-    Config::validate(&config, config_path).map_err(|e| format!("Config validation error: {}", e))?;
+    Config::validate(&config, config_path)
+        .map_err(|e| format!("Config validation error: {}", e))?;
 
     let content = toml::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
@@ -281,10 +288,7 @@ pub fn show_check_updates_dialog(parent: &ApplicationWindow) {
 
         let parent_resp = parent_for_response.clone();
 
-        let result = crate::update_checker::check_for_updates_blocking(
-            "verdioso/swai",
-            version,
-        );
+        let result = crate::update_checker::check_for_updates_blocking("verdioso/swai", version);
 
         match result {
             crate::update_checker::UpdateCheckResult::UpdateAvailable { version, .. } => {
@@ -306,10 +310,7 @@ pub fn show_check_updates_dialog(parent: &ApplicationWindow) {
                 dlg.connect_response(move |d, response| {
                     if response == ResponseType::Ok {
                         let install_result =
-                            crate::update_installer::install_update(
-                                "verdioso/swai",
-                                &version,
-                            );
+                            crate::update_installer::install_update("verdioso/swai", &version);
                         match install_result {
                             crate::update_installer::UpdateInstallResult::Success {
                                 new_version,

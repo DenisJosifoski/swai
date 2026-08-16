@@ -1,6 +1,6 @@
+use super::entry::SessionCheckpoint;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use super::entry::SessionCheckpoint;
 
 pub struct CheckpointRegistry {
     pub sessions: Arc<Mutex<HashMap<String, SessionCheckpoint>>>,
@@ -46,9 +46,7 @@ impl CheckpointRegistry {
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions
             .iter()
-            .filter_map(|(id, sc)| {
-                sc.format_for_injection().map(|text| (id.clone(), text))
-            })
+            .filter_map(|(id, sc)| sc.format_for_injection().map(|text| (id.clone(), text)))
             .collect()
     }
 }

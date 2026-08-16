@@ -1,11 +1,11 @@
-use gtk4 as gtk;
+use adw::ApplicationWindow;
 use gtk::prelude::*;
 use gtk::{MessageDialog, MessageType, ResponseType};
-use adw::ApplicationWindow;
+use gtk4 as gtk;
 
-use crate::import_wizard::ImportWizard;
 use super::dialogs::append_model_to_config;
 use super::types::ImportMessage;
+use crate::import_wizard::ImportWizard;
 
 pub fn build_adoption_banner(
     message: &str,
@@ -35,37 +35,38 @@ pub fn show_adopt_model_dialog(
     wizard.widget.connect_response(move |d, response| {
         if response == ResponseType::Ok {
             match wizard_clone.try_import() {
-                Ok(imported) => {
-                    match append_model_to_config(&imported) {
-                        Ok(()) => {
-                            tracing::info!(
-                                "Model '{}' adopted successfully (port {})",
-                                imported.id,
-                                imported.port
-                            );
-                            let model_config = swai_core::config::ModelConfig {
-                                id: imported.id.clone(),
-                                name: imported.name.clone(),
-                                script_path: imported.script_path.clone(),
-                                port: imported.port,
-                                health_timeout_sec: imported.health_timeout_sec,
-                            };
-                            let _ = sender_clone.send(ImportMessage::ModelImported { model: model_config });
-                        }
-                        Err(e) => {
-                            let error_dialog = MessageDialog::new(
-                                Some(&parent_clone),
-                                gtk::DialogFlags::MODAL,
-                                MessageType::Error,
-                                gtk::ButtonsType::Close,
-                                format!("Failed to save model:\n\n{}", e),
-                            );
-                            error_dialog.set_title(Some("SWAI - Save Error"));
-                            error_dialog.connect_response(|ed, _| ed.destroy());
-                            error_dialog.present();
-                        }
+                Ok(imported) => match append_model_to_config(&imported) {
+                    Ok(()) => {
+                        tracing::info!(
+                            "Model '{}' adopted successfully (port {})",
+                            imported.id,
+                            imported.port
+                        );
+                        let model_config = swai_core::config::ModelConfig {
+                            id: imported.id.clone(),
+                            name: imported.name.clone(),
+                            script_path: imported.script_path.clone(),
+                            port: imported.port,
+                            health_timeout_sec: imported.health_timeout_sec,
+                            ctx_size: 65_536,
+                        };
+                        let _ = sender_clone.send(ImportMessage::ModelImported {
+                            model: model_config,
+                        });
                     }
-                }
+                    Err(e) => {
+                        let error_dialog = MessageDialog::new(
+                            Some(&parent_clone),
+                            gtk::DialogFlags::MODAL,
+                            MessageType::Error,
+                            gtk::ButtonsType::Close,
+                            format!("Failed to save model:\n\n{}", e),
+                        );
+                        error_dialog.set_title(Some("SWAI - Save Error"));
+                        error_dialog.connect_response(|ed, _| ed.destroy());
+                        error_dialog.present();
+                    }
+                },
                 Err(e) => {
                     let error_dialog = MessageDialog::new(
                         Some(&parent_clone),

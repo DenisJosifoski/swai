@@ -5,7 +5,6 @@ mod tests {
     use crate::compaction::*;
     use serde_json::Value;
 
-
     #[test]
     fn test_message_serde_roundtrip() {
         let msg = Message {

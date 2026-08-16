@@ -85,14 +85,16 @@ mod tests {
 
     #[test]
     fn test_build_ollama_generate_chunks() {
-        let sse_data = "data: {\"choices\": [{\"delta\": {\"content\": \"hello\"}}]}\n\ndata: [DONE]\n\n";
+        let sse_data =
+            "data: {\"choices\": [{\"delta\": {\"content\": \"hello\"}}]}\n\ndata: [DONE]\n\n";
         let chunks = build_ollama_generate_chunks("test-model", sse_data);
         assert_eq!(chunks.len(), 2);
     }
 
     #[test]
     fn test_build_ollama_chat_chunks() {
-        let sse_data = "data: {\"choices\": [{\"delta\": {\"content\": \"world\"}}]}\n\ndata: [DONE]\n\n";
+        let sse_data =
+            "data: {\"choices\": [{\"delta\": {\"content\": \"world\"}}]}\n\ndata: [DONE]\n\n";
         let chunks = build_ollama_chat_chunks("test-model", sse_data);
         assert_eq!(chunks.len(), 2);
     }
@@ -291,7 +293,11 @@ mod tests {
         let openai_sse = "data: {\"choices\": [{\"delta\": {\"content\": \"Hello\"}}]}\n\ndata: {\"choices\": [{\"delta\": {\"content\": \" world\"}}]}\n\ndata: [DONE]\n\n";
         let events = translate_openai_sse_to_responses(openai_sse, "test-model");
         assert!(events.len() >= 5);
-        let all_events_str = events.iter().map(|e| String::from_utf8_lossy(e).to_string()).collect::<Vec<_>>().join("");
+        let all_events_str = events
+            .iter()
+            .map(|e| String::from_utf8_lossy(e).to_string())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(all_events_str.contains("event: response.created"));
         assert!(all_events_str.contains("event: response.output_item.added"));
         assert!(all_events_str.contains("event: response.content_part.added"));
@@ -306,7 +312,11 @@ mod tests {
     fn test_sse_responses_translator_escaped_content() {
         let openai_sse = "data: {\"choices\": [{\"delta\": {\"content\": \"line1\\nline2\\\"quoted\\\"\"}}]}\n\ndata: [DONE]\n\n";
         let events = translate_openai_sse_to_responses(openai_sse, "test-model");
-        let all_events_str = events.iter().map(|e| String::from_utf8_lossy(e).to_string()).collect::<Vec<_>>().join("");
+        let all_events_str = events
+            .iter()
+            .map(|e| String::from_utf8_lossy(e).to_string())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(all_events_str.contains("event: response.completed"));
     }
 
@@ -314,7 +324,11 @@ mod tests {
     fn test_translate_openai_sse_to_responses_full_lifecycle() {
         let openai_sse = "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Rust\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1700000000,\"model\":\"gpt-4\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" is awesome\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n";
         let events = translate_openai_sse_to_responses(openai_sse, "swai-active-model");
-        let all_events = events.iter().map(|e| String::from_utf8_lossy(e).to_string()).collect::<Vec<_>>().join("");
+        let all_events = events
+            .iter()
+            .map(|e| String::from_utf8_lossy(e).to_string())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(all_events.contains("event: response.created"));
         assert!(all_events.contains("event: response.output_item.added"));
         assert!(all_events.contains("event: response.output_text.delta"));

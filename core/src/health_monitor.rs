@@ -64,10 +64,8 @@ impl HealthMonitor {
             }
 
             if std::time::Instant::now() >= deadline {
-                state = ModelState::Error(format!(
-                    "health check timeout after {}s",
-                    self.timeout_sec
-                ));
+                state =
+                    ModelState::Error(format!("health check timeout after {}s", self.timeout_sec));
                 break;
             }
 
@@ -84,10 +82,7 @@ impl HealthMonitor {
     /// Sends `Starting` → `Loading` (repeatedly, as progress is detected) →
     /// `Ready` or `Error(msg)` through the channel. This is used by the UI to
     /// drive Starting → Loading → Ready transitions during model startup.
-    pub fn wait_until_ready_with_updates(
-        &self,
-        tx: std::sync::mpsc::Sender<ModelState>,
-    ) {
+    pub fn wait_until_ready_with_updates(&self, tx: std::sync::mpsc::Sender<ModelState>) {
         let deadline = std::time::Instant::now() + Duration::from_secs(self.timeout_sec as u64);
         let mut last_state: ModelState = ModelState::Starting;
 
@@ -125,10 +120,8 @@ impl HealthMonitor {
             }
 
             if std::time::Instant::now() >= deadline {
-                let timeout_state = ModelState::Error(format!(
-                    "health check timeout after {}s",
-                    self.timeout_sec
-                ));
+                let timeout_state =
+                    ModelState::Error(format!("health check timeout after {}s", self.timeout_sec));
                 let _ = tx.send(timeout_state);
                 break;
             }
@@ -157,7 +150,10 @@ impl HealthMonitor {
                         // "id" appears in different positions).
                         let model_id = serde_json::from_str::<serde_json::Value>(&body)
                             .ok()
-                            .and_then(|v| v.get("id").and_then(|id| id.as_str().map(|s| s.to_string())));
+                            .and_then(|v| {
+                                v.get("id")
+                                    .and_then(|id| id.as_str().map(|s| s.to_string()))
+                            });
 
                         return Ok((is_healthy, model_id));
                     }
@@ -170,7 +166,6 @@ impl HealthMonitor {
             ))),
         }
     }
-
 }
 
 #[cfg(test)]

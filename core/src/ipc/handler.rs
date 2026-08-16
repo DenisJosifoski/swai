@@ -2,9 +2,9 @@ use std::io;
 use std::os::unix::net::UnixStream;
 use tracing::debug;
 
+use super::protocol::{ActionRequest, ActionResponse, IpcState};
 use crate::config::Config;
 use crate::process_manager::ProcessManager;
-use super::protocol::{ActionRequest, ActionResponse, IpcState};
 
 pub fn handle_request_sync(stream: UnixStream, state: &IpcState) -> io::Result<()> {
     use std::io::Read;
@@ -30,7 +30,10 @@ pub fn handle_request_sync(stream: UnixStream, state: &IpcState) -> io::Result<(
     debug!("IPC request: action={}", request.action);
 
     // Dispatch the action with locked state.
-    let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+    let mut pm = state
+        .process_manager
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let response = dispatch_action(request, &mut pm, state);
     send_response_sync(&stream, &response)?;
 
@@ -44,7 +47,11 @@ pub fn handle_request_sync(stream: UnixStream, state: &IpcState) -> io::Result<(
 /// - `"prev"` → the previous model, wrapping from 0 to the last index. If no
 ///   model is running, starts from the last index.
 /// - Anything else → returned unchanged (used as a literal model ID).
-pub fn resolve_cycle_model_id(config: &Config, running_id: Option<&str>, candidate: &str) -> Option<String> {
+pub fn resolve_cycle_model_id(
+    config: &Config,
+    running_id: Option<&str>,
+    candidate: &str,
+) -> Option<String> {
     let models = &config.models;
     if models.is_empty() {
         return None;
@@ -53,9 +60,7 @@ pub fn resolve_cycle_model_id(config: &Config, running_id: Option<&str>, candida
     match candidate {
         "next" | "prev" => {
             // Determine the current running model index.
-            let current_idx = running_id.and_then(|rid| {
-                models.iter().position(|m| m.id == rid)
-            });
+            let current_idx = running_id.and_then(|rid| models.iter().position(|m| m.id == rid));
 
             let count = models.len();
             let new_idx = match (current_idx, candidate) {
@@ -130,10 +135,15 @@ pub fn dispatch_action(
             }
         }
         "start" | "switch" => {
-            let data = request.data.as_ref().and_then(|d| d.get("model_id").and_then(|v| v.as_str()));
+            let data = request
+                .data
+                .as_ref()
+                .and_then(|d| d.get("model_id").and_then(|v| v.as_str()));
             let model_id = match data {
                 Some(id) => id,
-                None => return ActionResponse::error(format!("missing model_id in {}", request.action)),
+                None => {
+                    return ActionResponse::error(format!("missing model_id in {}", request.action))
+                }
             };
 
             // Resolve cycling values (next/prev) to actual model IDs.
@@ -179,10 +189,7 @@ pub fn dispatch_action(
                 "switch" => {
                     // Stop current model then start the new one.
                     let from_id = pm.get_primary_model_id().map(|s| s.to_string());
-                    match pm.switch_model(
-                        from_id.as_deref().unwrap_or(""),
-                        &target.id,
-                    ) {
+                    match pm.switch_model(from_id.as_deref().unwrap_or(""), &target.id) {
                         Ok(()) => {
                             if let Ok(mut ps) = state.proxy_state.lock() {
                                 ps.set_target(target.port);
@@ -199,17 +206,14 @@ pub fn dispatch_action(
                 _ => unreachable!(),
             }
         }
-        other => {
-            ActionResponse::error(format!("unknown action: {}", other))
-        }
+        other => ActionResponse::error(format!("unknown action: {}", other)),
     }
 }
 
 /// Send a JSON response over a Unix stream (synchronous).
 pub fn send_response_sync(stream: &UnixStream, response: &ActionResponse) -> io::Result<()> {
-    let body = serde_json::to_string(response).map_err(|e| {
-        io::Error::other(format!("response serialization error: {}", e))
-    })?;
+    let body = serde_json::to_string(response)
+        .map_err(|e| io::Error::other(format!("response serialization error: {}", e)))?;
 
     use std::io::Write;
     let mut writer = io::BufWriter::new(stream);
@@ -219,4 +223,3 @@ pub fn send_response_sync(stream: &UnixStream, response: &ActionResponse) -> io:
 
     Ok(())
 }
-

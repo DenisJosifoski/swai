@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 /// A single summarized checkpoint entry representing one compaction event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CheckpointEntry {
@@ -55,7 +54,9 @@ impl SessionCheckpoint {
         }
 
         let mut lines = Vec::new();
-        lines.push("[Session checkpoint — earlier work in this conversation, condensed]".to_string());
+        lines.push(
+            "[Session checkpoint — earlier work in this conversation, condensed]".to_string(),
+        );
         if let Some(ref obj) = self.initial_objective {
             lines.push(format!("Initial Objective: {}", obj));
         }
@@ -121,4 +122,3 @@ impl SessionCheckpoint {
         self.entries.is_empty()
     }
 }
-

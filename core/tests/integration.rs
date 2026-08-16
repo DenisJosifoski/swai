@@ -15,7 +15,8 @@ use swai_core::process_manager::{ProcessError, ProcessManager};
 use swai_core::run;
 
 /// Path to the integration test config.
-const INTEGRATION_CONFIG: &str = "/mnt/orico/Documents/ApplicationsRAW/swai/core/tests/integration_tests.toml";
+const INTEGRATION_CONFIG: &str =
+    "/mnt/orico/Documents/ApplicationsRAW/swai/core/tests/integration_tests.toml";
 
 /// Test ports used by model-a and model-b.
 const TEST_PORT_A: u16 = 9876;
@@ -24,8 +25,8 @@ const TEST_PORT_B: u16 = 9877;
 /// Load config from the integration test path. Returns the config and a guard
 /// that keeps the single-instance lock alive for the duration of the test.
 fn load_test_config() -> (Config, swai_core::single_instance::SingleInstanceGuard) {
-    let (config, _reconcile_result, guard) = run(Some(INTEGRATION_CONFIG))
-        .expect("should load integration config");
+    let (config, _reconcile_result, guard) =
+        run(Some(INTEGRATION_CONFIG)).expect("should load integration config");
     (config, guard)
 }
 
@@ -120,8 +121,13 @@ fn test_repeated_switch_loop() {
     let mut pm = ProcessManager::new(config);
 
     // Initial start: model-a.
-    pm.start_model("model-a").expect("initial start model-a failed");
-    assert!(wait_port_bound(TEST_PORT_A, Duration::from_secs(3)), "port {} should be bound after starting model-a", TEST_PORT_A);
+    pm.start_model("model-a")
+        .expect("initial start model-a failed");
+    assert!(
+        wait_port_bound(TEST_PORT_A, Duration::from_secs(3)),
+        "port {} should be bound after starting model-a",
+        TEST_PORT_A
+    );
 
     for i in 0..10 {
         let (from, to, expected_port) = if i % 2 == 0 {
@@ -150,7 +156,8 @@ fn test_repeated_switch_loop() {
     }
 
     // Stop the last running model (model-a after 10 switches: A→B→A→B→A→B→A→B→A→B→A).
-    pm.stop_model("model-a", false).expect("should stop model-a");
+    pm.stop_model("model-a", false)
+        .expect("should stop model-a");
 
     verify_ports_free();
     println!("Repeated switch loop passed: 10 iterations without errors or port conflicts");
@@ -232,7 +239,11 @@ fn test_port_free_between_switch_steps() {
     let mut pm = ProcessManager::new(config);
 
     pm.start_model("model-a").expect("should start model-a");
-    assert!(wait_port_bound(TEST_PORT_A, Duration::from_secs(3)), "port {} should be bound after starting model-a", TEST_PORT_A);
+    assert!(
+        wait_port_bound(TEST_PORT_A, Duration::from_secs(3)),
+        "port {} should be bound after starting model-a",
+        TEST_PORT_A
+    );
 
     let result = pm.switch_model("model-a", "model-b");
     assert!(result.is_ok(), "switch a→b should succeed");
@@ -249,7 +260,8 @@ fn test_port_free_between_switch_steps() {
         TEST_PORT_B
     );
 
-    pm.stop_model("model-b", false).expect("should stop model-b");
+    pm.stop_model("model-b", false)
+        .expect("should stop model-b");
 
     verify_ports_free();
     println!("Port free check between switch steps passed");

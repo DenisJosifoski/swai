@@ -1,8 +1,8 @@
-use gtk4 as gtk;
-use gtk::prelude::*;
-use gtk::{Application, Box as GtkBox, MessageDialog, MessageType, Orientation, ResponseType};
 use adw::prelude::*;
 use adw::ApplicationWindow;
+use gtk::prelude::*;
+use gtk::{Application, Box as GtkBox, MessageDialog, MessageType, Orientation, ResponseType};
+use gtk4 as gtk;
 use ksni::blocking::Handle;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -49,7 +49,11 @@ pub struct MainWindow {
 }
 
 impl MainWindow {
-    pub fn new(app: &Application, config: Config, proxy_state: Option<Arc<Mutex<ProxyState>>>) -> Self {
+    pub fn new(
+        app: &Application,
+        config: Config,
+        proxy_state: Option<Arc<Mutex<ProxyState>>>,
+    ) -> Self {
         gtk::Window::set_default_icon_name("swai");
         load_css();
 
@@ -75,11 +79,15 @@ impl MainWindow {
         }
 
         let cards = Rc::new(RefCell::new(
-            config.models.iter().map(|m| {
-                let card = ModelCard::new(m);
-                card_box.borrow_mut().append(&card.widget);
-                card
-            }).collect::<Vec<_>>()
+            config
+                .models
+                .iter()
+                .map(|m| {
+                    let card = ModelCard::new(m);
+                    card_box.borrow_mut().append(&card.widget);
+                    card
+                })
+                .collect::<Vec<_>>(),
         ));
 
         reorder_card_container(&cards.borrow());
@@ -93,9 +101,8 @@ impl MainWindow {
 
         widget.set_content(Some(&main_vbox));
 
-        let config_path = Config::resolve_path().unwrap_or_else(|| {
-            std::path::PathBuf::from("/nonexistent/config.toml")
-        });
+        let config_path = Config::resolve_path()
+            .unwrap_or_else(|| std::path::PathBuf::from("/nonexistent/config.toml"));
 
         let pm = Arc::new(Mutex::new(ProcessManager::new(config.clone())));
 
@@ -104,12 +111,19 @@ impl MainWindow {
         let (unmanaged_banner, adopt_port, adopt_model_name) = if !unmanaged_servers.is_empty() {
             let first = &unmanaged_servers[0];
             let banner = build_adoption_banner(
-                &format!("Unmanaged local model detected on port {} ({})", first.port, first.model_name),
+                &format!(
+                    "Unmanaged local model detected on port {} ({})",
+                    first.port, first.model_name
+                ),
                 first.port,
                 first.model_name.clone(),
                 &widget,
             );
-            (Some(banner), Some(first.port), Some(first.model_name.clone()))
+            (
+                Some(banner),
+                Some(first.port),
+                Some(first.model_name.clone()),
+            )
         } else {
             (None, None, None)
         };
@@ -128,7 +142,10 @@ impl MainWindow {
             let mut pm_guard = pm.lock().unwrap_or_else(|e| e.into_inner());
             let mut running_model_found = None;
             for model in pm_guard.config().models.iter() {
-                if matches!(ProcessManager::check_port(model.port), PortState::OccupiedByModel) {
+                if matches!(
+                    ProcessManager::check_port(model.port),
+                    PortState::OccupiedByModel
+                ) {
                     let pid = ProcessManager::get_port_pid(model.port).ok();
                     running_model_found = Some((model.clone(), pid));
                     break;
@@ -141,13 +158,11 @@ impl MainWindow {
                     port: model.port,
                     shutdown_timeout_sec: 10,
                 };
-                pm_guard.set_running_model(
-                    swai_core::process_manager::RunningModel {
-                        id: model.id.clone(),
-                        guard: Box::new(guard),
-                        state: swai_core::process_manager::ModelState::Ready,
-                    },
-                );
+                pm_guard.set_running_model(swai_core::process_manager::RunningModel {
+                    id: model.id.clone(),
+                    guard: Box::new(guard),
+                    state: swai_core::process_manager::ModelState::Ready,
+                });
             }
         }
 
@@ -251,10 +266,15 @@ impl MainWindow {
             let pm_wa = Arc::clone(&pm);
             let app_wa = app.clone();
             let on_quit: Arc<dyn Fn()> = Arc::new(move || {
-                let _ = pm_wa.lock().unwrap_or_else(|e| {
-                    tracing::error!("quit: process manager lock poisoned, continuing with shutdown");
-                    e.into_inner()
-                }).stop_all(true);
+                let _ = pm_wa
+                    .lock()
+                    .unwrap_or_else(|e| {
+                        tracing::error!(
+                            "quit: process manager lock poisoned, continuing with shutdown"
+                        );
+                        e.into_inner()
+                    })
+                    .stop_all(true);
                 for w in app_wa.windows() {
                     w.destroy();
                 }
@@ -279,7 +299,11 @@ impl MainWindow {
                 #[weak]
                 widget,
                 move |_, _| {
-                    crate::window::dialogs::show_manage_models_dialog(&widget, &import_sender_for_manage, &pm_for_manage);
+                    crate::window::dialogs::show_manage_models_dialog(
+                        &widget,
+                        &import_sender_for_manage,
+                        &pm_for_manage,
+                    );
                 }
             ));
             widget.add_action(&manage_models_action);
@@ -292,7 +316,10 @@ impl MainWindow {
                 #[weak]
                 widget,
                 move |_, _| {
-                    crate::window::dialogs::show_add_model_dialog(&widget, &import_sender_for_action);
+                    crate::window::dialogs::show_add_model_dialog(
+                        &widget,
+                        &import_sender_for_action,
+                    );
                 }
             ));
             widget.add_action(&add_model_action);
@@ -373,7 +400,9 @@ impl MainWindow {
 
         *tray_handle_for_struct.borrow_mut() = tray_handle;
 
-        if let (Some(ref banner), Some(port), Some(name)) = (unmanaged_banner.as_ref(), adopt_port, adopt_model_name) {
+        if let (Some(ref banner), Some(port), Some(name)) =
+            (unmanaged_banner.as_ref(), adopt_port, adopt_model_name)
+        {
             let parent = widget.clone();
             let sender = import_sender.clone();
             banner.connect_button_clicked(move |_| {
@@ -407,10 +436,14 @@ impl MainWindow {
     #[allow(dead_code)]
     pub fn quit(&self) {
         tracing::info!("quitting SWAI");
-        let _ = self.process_manager.lock().unwrap_or_else(|e| {
-            tracing::error!("quit: process manager lock poisoned, continuing with shutdown");
-            e.into_inner()
-        }).stop_all(true);
+        let _ = self
+            .process_manager
+            .lock()
+            .unwrap_or_else(|e| {
+                tracing::error!("quit: process manager lock poisoned, continuing with shutdown");
+                e.into_inner()
+            })
+            .stop_all(true);
         self.widget.close();
     }
 }

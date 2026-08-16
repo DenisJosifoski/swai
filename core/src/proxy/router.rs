@@ -3,7 +3,9 @@ use tiny_http::{Header, Request, Response};
 use tracing::{debug, error};
 
 use super::anthropic::process_anthropic_payload;
-use super::ollama::{handle_ollama_chat, handle_ollama_generate, handle_ollama_tags, is_ollama_endpoint};
+use super::ollama::{
+    handle_ollama_chat, handle_ollama_generate, handle_ollama_tags, is_ollama_endpoint,
+};
 use super::openai::{handle_v1_models, normalize_codex_payload, responses_adapter};
 use super::state::ProxyState;
 use super::streaming::{translate_openai_sse_to_responses, ResponsesStreamingBody, StreamingBody};
@@ -25,10 +27,7 @@ pub fn handle_proxy_request(
     // No active model → 503 Service Unavailable
     if proxy_state.primary_port.is_none() && proxy_state.active_models.is_empty() {
         drop(proxy_state);
-        let _ = req.respond(error_response(
-            503,
-            "No active model server in SWAI",
-        ));
+        let _ = req.respond(error_response(503, "No active model server in SWAI"));
         return;
     }
 
@@ -62,10 +61,7 @@ pub fn handle_proxy_request(
             match primary {
                 Some(p) => p,
                 None => {
-                    let _ = req.respond(error_response(
-                        503,
-                        "No active model server in SWAI",
-                    ));
+                    let _ = req.respond(error_response(503, "No active model server in SWAI"));
                     return;
                 }
             }
@@ -74,7 +70,9 @@ pub fn handle_proxy_request(
 
     // Handle OpenAI /v1/models endpoint to list all currently running models.
     let path_and_query = req.url().to_string();
-    if req.method().as_str() == "GET" && (path_and_query == "/v1/models" || path_and_query == "/models") {
+    if req.method().as_str() == "GET"
+        && (path_and_query == "/v1/models" || path_and_query == "/models")
+    {
         handle_v1_models(req, &state);
         return;
     }
@@ -107,11 +105,9 @@ pub fn handle_proxy_request(
         }
         let field_bytes = field_name.as_bytes();
         forward_headers.push(
-            Header::from_bytes(field_bytes, header.value.as_bytes())
-                .unwrap_or_else(|_| {
-                    Header::from_bytes(field_bytes, b"")
-                        .expect("header construction should never fail")
-                }),
+            Header::from_bytes(field_bytes, header.value.as_bytes()).unwrap_or_else(|_| {
+                Header::from_bytes(field_bytes, b"").expect("header construction should never fail")
+            }),
         );
     }
 
@@ -196,16 +192,19 @@ pub fn handle_proxy_request(
         let has_auth = req.headers().iter().any(|h| {
             h.field.as_str() == "authorization"
                 || h.field.as_str() == "Authorization"
-                || h.field.as_str() == "AUTHORIZATION"
-                && h.value.as_str().starts_with("Bearer ")
+                || h.field.as_str() == "AUTHORIZATION" && h.value.as_str().starts_with("Bearer ")
         });
 
         if let Some(builder) = request_builder.try_clone() {
             if let Ok(resp) = builder.send() {
                 let status = resp.status().as_u16();
                 if let Ok(body_bytes) = resp.bytes() {
-                    if let Ok(mut json_val) = serde_json::from_slice::<serde_json::Value>(&body_bytes) {
-                        if let Some(data_arr) = json_val.get_mut("data").and_then(|d| d.as_array_mut()) {
+                    if let Ok(mut json_val) =
+                        serde_json::from_slice::<serde_json::Value>(&body_bytes)
+                    {
+                        if let Some(data_arr) =
+                            json_val.get_mut("data").and_then(|d| d.as_array_mut())
+                        {
                             let mut extra_items = Vec::new();
                             for item in data_arr.iter_mut() {
                                 if let Some(obj) = item.as_object_mut() {
@@ -215,7 +214,9 @@ pub fn handle_proxy_request(
                                             serde_json::Value::String("model".to_string()),
                                         );
                                     } else {
-                                        let clean_id = if let Some(raw_id) = obj.get("id").and_then(|v| v.as_str()) {
+                                        let clean_id = if let Some(raw_id) =
+                                            obj.get("id").and_then(|v| v.as_str())
+                                        {
                                             std::path::Path::new(raw_id)
                                                 .file_stem()
                                                 .and_then(|s| s.to_str())
@@ -236,7 +237,9 @@ pub fn handle_proxy_request(
                                         let mut spoof_obj = obj.clone();
                                         spoof_obj.insert(
                                             "id".to_string(),
-                                            serde_json::Value::String("claude-sonnet-4-5".to_string()),
+                                            serde_json::Value::String(
+                                                "claude-sonnet-4-5".to_string(),
+                                            ),
                                         );
                                         extra_items.push(serde_json::Value::Object(spoof_obj));
                                     }
@@ -244,10 +247,18 @@ pub fn handle_proxy_request(
                             }
                             data_arr.extend(extra_items);
                         }
-                        let modified_bytes = serde_json::to_vec(&json_val).unwrap_or_else(|_| body_bytes.to_vec());
+                        let modified_bytes =
+                            serde_json::to_vec(&json_val).unwrap_or_else(|_| body_bytes.to_vec());
                         let mut response_headers = Vec::new();
-                        response_headers.push(Header::from_bytes("content-type", b"application/json").unwrap());
-                        response_headers.push(Header::from_bytes("content-length", modified_bytes.len().to_string().as_bytes()).unwrap());
+                        response_headers
+                            .push(Header::from_bytes("content-type", b"application/json").unwrap());
+                        response_headers.push(
+                            Header::from_bytes(
+                                "content-length",
+                                modified_bytes.len().to_string().as_bytes(),
+                            )
+                            .unwrap(),
+                        );
                         let tiny_response = Response::new(
                             tiny_http::StatusCode(status),
                             response_headers,
@@ -281,11 +292,10 @@ pub fn handle_proxy_request(
             continue;
         }
         response_headers.push(
-            Header::from_bytes(name.as_str(), value.as_bytes())
-                .unwrap_or_else(|_| {
-                    Header::from_bytes(name.as_str(), b"")
-                        .expect("header construction should never fail")
-                }),
+            Header::from_bytes(name.as_str(), value.as_bytes()).unwrap_or_else(|_| {
+                Header::from_bytes(name.as_str(), b"")
+                    .expect("header construction should never fail")
+            }),
         );
     }
 
@@ -356,10 +366,9 @@ pub fn resolve_target_port(state: &ProxyState, body: &[u8]) -> Option<u16> {
         return None;
     }
 
-    let has_model_key = body.windows(7).any(|w| {
-        w.eq_ignore_ascii_case(b"\"model\"")
-            || w.eq_ignore_ascii_case(b"'model'")
-    });
+    let has_model_key = body
+        .windows(7)
+        .any(|w| w.eq_ignore_ascii_case(b"\"model\"") || w.eq_ignore_ascii_case(b"'model'"));
     if !has_model_key {
         return None;
     }
@@ -369,10 +378,7 @@ pub fn resolve_target_port(state: &ProxyState, body: &[u8]) -> Option<u16> {
         Err(_) => return None,
     };
 
-    let model_id = json_val
-        .get("model")
-        .and_then(|m| m.as_str())
-        .unwrap_or("");
+    let model_id = json_val.get("model").and_then(|m| m.as_str()).unwrap_or("");
 
     if model_id.is_empty() {
         return None;
@@ -408,10 +414,8 @@ pub fn error_response(status: u16, message: &str) -> Response<std::io::Cursor<Ve
     Response::from_data(body.into_bytes())
         .with_status_code(tiny_http::StatusCode(status))
         .with_header(
-            Header::from_bytes("content-type", b"application/json")
-                .unwrap_or_else(|_| {
-                    Header::from_bytes("content-type", b"application/json")
-                        .expect("should never fail")
-                }),
+            Header::from_bytes("content-type", b"application/json").unwrap_or_else(|_| {
+                Header::from_bytes("content-type", b"application/json").expect("should never fail")
+            }),
         )
 }

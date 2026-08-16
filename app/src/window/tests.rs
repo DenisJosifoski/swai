@@ -27,7 +27,11 @@ mod tests {
         };
 
         let result = append_model_to_config_at(&config_path, &model);
-        assert!(result.is_ok(), "Adoption should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Adoption should succeed: {:?}",
+            result.err()
+        );
 
         // Reload and verify the model was registered.
         let content = std::fs::read_to_string(&config_path).unwrap();
@@ -69,7 +73,10 @@ mod tests {
         };
 
         let result = append_model_to_config_at(&config_path, &model);
-        assert!(result.is_err(), "Duplicate port adoption should have been rejected");
+        assert!(
+            result.is_err(),
+            "Duplicate port adoption should have been rejected"
+        );
 
         // Verify config was not modified.
         let content = std::fs::read_to_string(&config_path).unwrap();

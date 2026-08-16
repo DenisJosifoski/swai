@@ -1,6 +1,6 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
 use gtk::{MessageType, ResponseType, Window};
+use gtk4 as gtk;
 
 use adw::prelude::*;
 
@@ -54,10 +54,8 @@ impl ManageModelsDialog {
         let models = match Config::load() {
             Ok(cfg) => cfg.models,
             Err(e) => {
-                let error_label = gtk::Label::new(Some(&format!(
-                    "Could not load configuration:\n{}",
-                    e
-                )));
+                let error_label =
+                    gtk::Label::new(Some(&format!("Could not load configuration:\n{}", e)));
                 error_label.set_wrap(true);
                 error_label.set_justify(gtk::Justification::Center);
                 error_label.set_margin_top(24);
@@ -82,12 +80,8 @@ impl ManageModelsDialog {
         } else {
             let prefs_group = adw::PreferencesGroup::new();
             for model in &models {
-                let row = Self::build_model_row(
-                    &parent_win,
-                    model,
-                    &import_sender,
-                    &process_manager,
-                );
+                let row =
+                    Self::build_model_row(&parent_win, model, &import_sender, &process_manager);
 
                 prefs_group.add(&row);
             }
@@ -276,25 +270,21 @@ impl ManageModelsDialog {
 
             // Perform the deletion.
             match pm_for_confirm.lock() {
-                Ok(mut pm) => {
-                    match pm.remove_model(&id_clone) {
-                        Ok(()) => {
-                            tracing::info!("Model '{}' deleted successfully", id_clone);
-                            let _ = sender_clone.send(
-                                ImportMessage::ModelDeleted {
-                                    id: id_clone.clone(),
-                                },
-                            );
-                        }
-                        Err(e) => {
-                            show_error(
-                                None::<&gtk::Window>,
-                                &format!("Failed to delete model:\n\n{}", e),
-                                "SWAI — Delete Error",
-                            );
-                        }
+                Ok(mut pm) => match pm.remove_model(&id_clone) {
+                    Ok(()) => {
+                        tracing::info!("Model '{}' deleted successfully", id_clone);
+                        let _ = sender_clone.send(ImportMessage::ModelDeleted {
+                            id: id_clone.clone(),
+                        });
                     }
-                }
+                    Err(e) => {
+                        show_error(
+                            None::<&gtk::Window>,
+                            &format!("Failed to delete model:\n\n{}", e),
+                            "SWAI — Delete Error",
+                        );
+                    }
+                },
                 Err(_) => {
                     show_error(
                         None::<&gtk::Window>,
@@ -309,5 +299,4 @@ impl ManageModelsDialog {
 
         dialog.present();
     }
-
 }

@@ -1,6 +1,6 @@
-use gtk4 as gtk;
-use gtk::prelude::*;
 use adw::ApplicationWindow;
+use gtk::prelude::*;
+use gtk4 as gtk;
 use ksni::blocking::Handle;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -79,14 +79,24 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                             match &result {
                                 Ok(()) => c.set_state(CardState::Ready),
                                 Err(e) => {
-                                    c.set_state(CardState::Error(format!("Failed to start: {}", e)));
+                                    c.set_state(CardState::Error(format!(
+                                        "Failed to start: {}",
+                                        e
+                                    )));
                                     if config.enable_notifications() {
-                                        notify("SWAI - Model Error", "Failed to start model - process exited with error");
+                                        notify(
+                                            "SWAI - Model Error",
+                                            "Failed to start model - process exited with error",
+                                        );
                                     }
                                 }
                             }
                         } else {
-                            let is_running = pm_timeout.lock().ok().map(|pm| pm.find_running_model(&cid).is_some()).unwrap_or(false);
+                            let is_running = pm_timeout
+                                .lock()
+                                .ok()
+                                .map(|pm| pm.find_running_model(&cid).is_some())
+                                .unwrap_or(false);
                             if !is_running {
                                 c.set_state(CardState::Stopped);
                             }
@@ -100,12 +110,17 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                     reorder_card_container(&cards_borrow);
 
                     if let Some(active_card) = cards_borrow.iter().find(|c| {
-                        matches!(c.state(), CardState::Ready | CardState::Starting | CardState::Loading)
+                        matches!(
+                            c.state(),
+                            CardState::Ready | CardState::Starting | CardState::Loading
+                        )
                     }) {
-                        footer_model_label.set_text(&format!("{} active", active_card.config().name));
+                        footer_model_label
+                            .set_text(&format!("{} active", active_card.config().name));
                         footer_model_label.set_css_classes(&["accent-label"]);
                     } else {
-                        footer_model_label.set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
+                        footer_model_label
+                            .set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
                         footer_model_label.set_css_classes(&["dim-label"]);
                     }
 
@@ -115,8 +130,10 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                         }
                     }
 
-                    if result.is_ok() && config.enable_notifications() && config.notify_on_switch() {
-                        let model_name = cards_borrow.iter()
+                    if result.is_ok() && config.enable_notifications() && config.notify_on_switch()
+                    {
+                        let model_name = cards_borrow
+                            .iter()
                             .find(|c| c.config().id == target_id)
                             .map(|c| c.config().name.clone())
                             .unwrap_or_else(|| target_id.clone());
@@ -128,7 +145,9 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                         if c.config().id == running_id {
                             match &result {
                                 Ok(()) => c.set_state(CardState::Stopped),
-                                Err(e) => c.set_state(CardState::Error(format!("Failed to stop: {}", e))),
+                                Err(e) => {
+                                    c.set_state(CardState::Error(format!("Failed to stop: {}", e)))
+                                }
                             }
                             c.enable_toggle();
                             c.enable_restart();
@@ -140,12 +159,17 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                     reorder_card_container(&cards_borrow);
 
                     if let Some(active_card) = cards_borrow.iter().find(|c| {
-                        matches!(c.state(), CardState::Ready | CardState::Starting | CardState::Loading)
+                        matches!(
+                            c.state(),
+                            CardState::Ready | CardState::Starting | CardState::Loading
+                        )
                     }) {
-                        footer_model_label.set_text(&format!("{} active", active_card.config().name));
+                        footer_model_label
+                            .set_text(&format!("{} active", active_card.config().name));
                         footer_model_label.set_css_classes(&["accent-label"]);
                     } else {
-                        footer_model_label.set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
+                        footer_model_label
+                            .set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
                         footer_model_label.set_css_classes(&["dim-label"]);
                     }
                 }
@@ -175,7 +199,10 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                                     ready_model_name = Some(c.config().name.clone());
                                 }
                                 ModelState::Error(msg) => {
-                                    c.set_state(CardState::Error(format!("Failed to load: {}", msg)));
+                                    c.set_state(CardState::Error(format!(
+                                        "Failed to load: {}",
+                                        msg
+                                    )));
                                     needs_toggle_enable = true;
                                     error_info = Some((c.config().name.clone(), msg.clone()));
                                 }
@@ -195,12 +222,17 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                     }
 
                     if let Some(active_card) = cards_borrow.iter().find(|c| {
-                        matches!(c.state(), CardState::Ready | CardState::Starting | CardState::Loading)
+                        matches!(
+                            c.state(),
+                            CardState::Ready | CardState::Starting | CardState::Loading
+                        )
                     }) {
-                        footer_model_label.set_text(&format!("{} active", active_card.config().name));
+                        footer_model_label
+                            .set_text(&format!("{} active", active_card.config().name));
                         footer_model_label.set_css_classes(&["accent-label"]);
                     } else {
-                        footer_model_label.set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
+                        footer_model_label
+                            .set_text(&format!("SWAI v{}", env!("CARGO_PKG_VERSION")));
                         footer_model_label.set_css_classes(&["dim-label"]);
                     }
 
@@ -210,7 +242,10 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                         }
                     } else if let Some((name, err)) = error_info {
                         if config.enable_notifications() {
-                            notify("SWAI - Model Error", &format!("Failed to load {}: {}", name, err));
+                            notify(
+                                "SWAI - Model Error",
+                                &format!("Failed to load {}: {}", name, err),
+                            );
                         }
                     }
                 }
@@ -299,10 +334,15 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
         while let Ok(msg) = import_receiver.try_recv() {
             match msg {
                 ImportMessage::ModelImported { model } => {
-                    pm_for_import.lock().unwrap_or_else(|e| {
-                        tracing::error!("import: process manager lock poisoned, skipping model add");
-                        e.into_inner()
-                    }).add_model(model.clone());
+                    pm_for_import
+                        .lock()
+                        .unwrap_or_else(|e| {
+                            tracing::error!(
+                                "import: process manager lock poisoned, skipping model add"
+                            );
+                            e.into_inner()
+                        })
+                        .add_model(model.clone());
 
                     let mut card = ModelCard::new(&model);
                     card_box.borrow_mut().append(&card.widget);
@@ -319,9 +359,17 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                     );
 
                     cards_borrow.push(card);
-                    tracing::info!("Appended card for newly imported model '{}' (port {})", model.id, model.port);
+                    tracing::info!(
+                        "Appended card for newly imported model '{}' (port {})",
+                        model.id,
+                        model.port
+                    );
                 }
-                ImportMessage::ModelNameUpdated { id: updated_id, name: new_name, port: new_port } => {
+                ImportMessage::ModelNameUpdated {
+                    id: updated_id,
+                    name: new_name,
+                    port: new_port,
+                } => {
                     for c in cards_borrow.iter_mut() {
                         if c.config().id == updated_id {
                             c.update_model(&new_name, new_port);

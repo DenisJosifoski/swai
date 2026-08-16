@@ -1,5 +1,5 @@
-use gtk4 as gtk;
 use gtk::prelude::*;
+use gtk4 as gtk;
 
 /// Show an error message dialog.
 pub fn show_error<P: gtk::prelude::IsA<gtk::Window>>(

@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use serde::Deserialize;
+use std::path::{Path, PathBuf};
 
 use super::error::ConfigError;
 use super::model::ModelConfig;
@@ -29,7 +29,10 @@ impl Config {
 
         // Fallback to ~/.config/swai/config.toml
         if let Ok(home) = std::env::var("HOME") {
-            let p = PathBuf::from(&home).join(".config").join("swai").join("config.toml");
+            let p = PathBuf::from(&home)
+                .join(".config")
+                .join("swai")
+                .join("config.toml");
             if p.exists() {
                 return Some(p);
             }
@@ -49,8 +52,7 @@ impl Config {
 
     /// Validate a loaded config.
     pub fn validate(config: &Self, _config_path: &Path) -> Result<Self, ConfigError> {
-        let mut seen_ports: std::collections::HashSet<u16> =
-            std::collections::HashSet::new();
+        let mut seen_ports: std::collections::HashSet<u16> = std::collections::HashSet::new();
         for model in &config.models {
             if !seen_ports.insert(model.port) {
                 return Err(ConfigError::Validation(format!(
@@ -83,8 +85,7 @@ impl Config {
     /// Get the default log directory.
     pub fn default_log_dir() -> PathBuf {
         if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home)
-                .join(".local/share/swai/logs/")
+            PathBuf::from(home).join(".local/share/swai/logs/")
         } else {
             PathBuf::from("logs/")
         }
@@ -110,7 +111,9 @@ impl Config {
 
     /// Get the effective proxy port.
     pub fn proxy_port(&self) -> u16 {
-        self.global.proxy_port.unwrap_or_else(Self::default_proxy_port)
+        self.global
+            .proxy_port
+            .unwrap_or_else(Self::default_proxy_port)
     }
 
     /// Get the effective auto-restart setting.
@@ -159,7 +162,10 @@ impl Config {
     /// Used by the Preferences UI to populate dropdown selectors that let
     /// users choose a model for a specific role (e.g., checkpoint summarizer).
     pub fn configured_models(&self) -> Vec<(&str, &str)> {
-        self.models.iter().map(|m| (m.id.as_str(), m.name.as_str())).collect()
+        self.models
+            .iter()
+            .map(|m| (m.id.as_str(), m.name.as_str()))
+            .collect()
     }
 }
 

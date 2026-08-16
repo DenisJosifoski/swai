@@ -48,9 +48,15 @@ impl CheckpointWriter {
     /// `~/.local/share/swai/checkpoints/` (or `$XDG_DATA_HOME/swai/checkpoints/`).
     pub fn default_base_dir() -> std::path::PathBuf {
         if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-            std::path::PathBuf::from(&xdg).join("swai").join("checkpoints")
+            std::path::PathBuf::from(&xdg)
+                .join("swai")
+                .join("checkpoints")
         } else if let Ok(home) = std::env::var("HOME") {
-            std::path::PathBuf::from(home).join(".local").join("share").join("swai").join("checkpoints")
+            std::path::PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("swai")
+                .join("checkpoints")
         } else {
             std::path::PathBuf::from("checkpoints")
         }
@@ -97,7 +103,8 @@ impl CheckpointWriter {
         })?;
 
         // Derive session_id from the file name (strip .md).
-        let session_id = self.file_path
+        let session_id = self
+            .file_path
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
@@ -165,7 +172,8 @@ impl CheckpointWriter {
             return None;
         }
 
-        let session_id = self.file_path
+        let session_id = self
+            .file_path
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();

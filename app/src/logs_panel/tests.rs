@@ -1,11 +1,10 @@
 #[cfg(test)]
 mod tests {
     use super::super::poller::*;
-    
+
     use std::fs::{self};
     use std::path::PathBuf;
     use swai_core::config::ModelConfig;
-
 
     fn make_test_model(id: &str, name: &str) -> ModelConfig {
         ModelConfig {
@@ -14,6 +13,7 @@ mod tests {
             script_path: PathBuf::from(format!("/tmp/{}.sh", id)),
             port: 8080 + id.parse::<u16>().unwrap_or(1),
             health_timeout_sec: 30,
+            ctx_size: 65_536,
         }
     }
 

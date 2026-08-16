@@ -59,9 +59,9 @@ impl Message {
 
     /// Check if this message contains a tool_use block.
     pub fn has_tool_use(&self) -> bool {
-        self.content.iter().any(|item| {
-            item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
-        })
+        self.content
+            .iter()
+            .any(|item| item.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
     }
 
     /// Extract the tool name from a tool_use block if present.
@@ -76,9 +76,11 @@ impl Message {
 
     /// Check if this message is a tool_result.
     pub fn is_tool_result(&self) -> bool {
-        self.role == "user" && self.content.iter().any(|item| {
-            item.get("type").and_then(|t| t.as_str()) == Some("tool_result")
-        })
+        self.role == "user"
+            && self
+                .content
+                .iter()
+                .any(|item| item.get("type").and_then(|t| t.as_str()) == Some("tool_result"))
     }
 
     /// Extract the first tool result status (success/failure).
@@ -90,7 +92,9 @@ impl Message {
                     if let Some(arr) = content.as_array() {
                         for block in arr {
                             if let Some(is_error) = block.get("isError").and_then(|v| v.as_bool()) {
-                                return Some(if is_error { "failed" } else { "passed" }.to_string());
+                                return Some(
+                                    if is_error { "failed" } else { "passed" }.to_string(),
+                                );
                             }
                         }
                     }
@@ -109,7 +113,10 @@ impl Message {
                 if let Some(name) = item.get("name").and_then(|n| n.as_str()) {
                     if name == "RunCommand" || name == "run_command" {
                         if let Some(input) = item.get("input") {
-                            return input.get("command").and_then(|c| c.as_str()).map(String::from);
+                            return input
+                                .get("command")
+                                .and_then(|c| c.as_str())
+                                .map(String::from);
                         }
                     }
                 }
@@ -196,4 +203,3 @@ impl Default for CompactionConfig {
         }
     }
 }
-

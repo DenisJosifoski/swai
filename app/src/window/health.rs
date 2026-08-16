@@ -1,6 +1,6 @@
+use super::types::ChannelMessage;
 use std::sync::{Arc, Mutex};
 use swai_core::process_manager::{ModelState, ProcessManager};
-use super::types::ChannelMessage;
 
 /// Spawn a health monitor thread for the given model.
 pub fn spawn_health_monitor(
@@ -10,15 +10,14 @@ pub fn spawn_health_monitor(
 ) {
     let (health_tx, health_rx) = std::sync::mpsc::channel::<ModelState>();
 
-    let already_running = pm.lock()
+    let already_running = pm
+        .lock()
         .ok()
         .map(|p| p.find_running_model(&model_id).is_some())
         .unwrap_or(false);
 
     if already_running {
-        let port = pm.lock()
-            .ok()
-            .and_then(|p| p.get_port_for_model(&model_id));
+        let port = pm.lock().ok().and_then(|p| p.get_port_for_model(&model_id));
 
         if let Some(port) = port {
             let monitor = swai_core::health_monitor::HealthMonitor::new(port, 30);
@@ -45,18 +44,13 @@ pub fn spawn_health_monitor(
 }
 
 /// Check for SWAI updates in the background.
-pub fn check_for_update_background(
-    github_repo: &str,
-    current_version: &str,
-) {
+pub fn check_for_update_background(github_repo: &str, current_version: &str) {
     let bg_github_repo = github_repo.to_string();
     let bg_current_version = current_version.to_string();
 
     std::thread::spawn(move || {
-        let result = crate::update_checker::check_for_updates_blocking(
-            &bg_github_repo,
-            &bg_current_version,
-        );
+        let result =
+            crate::update_checker::check_for_updates_blocking(&bg_github_repo, &bg_current_version);
 
         match result {
             crate::update_checker::UpdateCheckResult::UpdateAvailable { version, .. } => {
