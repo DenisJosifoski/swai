@@ -174,7 +174,7 @@ fn test_zombie_port_path() {
     let mut pm = ProcessManager::new(config);
 
     let zombie = std::process::Command::new("nc")
-        .args(["-l", "-p", "9876"])
+        .args(["-l", "-k", "9876"])
         .spawn()
         .expect("should spawn nc listener to simulate zombie port");
 

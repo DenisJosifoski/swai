@@ -3,19 +3,21 @@ use tiny_http::{Header, Request, Response};
 use tracing::{debug, error};
 
 use super::anthropic::process_anthropic_payload;
+pub use super::council::{
+    build_council_sse_events, escape_sse_text, extract_model_from_body, is_council_model,
+    parse_pipeline_header, ProxyExecutor,
+};
 use super::ollama::{
     handle_ollama_chat, handle_ollama_generate, handle_ollama_tags, is_ollama_endpoint,
 };
-use super::openai::{handle_v1_models, normalize_codex_payload, responses_adapter};
+use super::openai::{handle_v1_models, normalize_codex_payload};
 use super::state::ProxyState;
-use super::streaming::{translate_openai_sse_to_responses, ResponsesStreamingBody, StreamingBody};
+use super::streaming::{translate_openai_sse_to_responses, ResponsesStreamingBody};
+use crate::council::CouncilEngine;
+use reqwest::blocking::Client;
 
 /// Handle an incoming proxy request by inspecting state and forwarding.
-pub fn handle_proxy_request(
-    mut req: Request,
-    state: Arc<Mutex<ProxyState>>,
-    client: reqwest::blocking::Client,
-) {
+pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, client: Client) {
     let proxy_state = match state.lock() {
         Ok(s) => s,
         Err(e) => {
@@ -23,15 +25,11 @@ pub fn handle_proxy_request(
             return;
         }
     };
-
-    // No active model → 503 Service Unavailable
     if proxy_state.primary_port.is_none() && proxy_state.active_models.is_empty() {
         drop(proxy_state);
         let _ = req.respond(error_response(503, "No active model server in SWAI"));
         return;
     }
-
-    // Model is currently starting / restarting → 503
     if proxy_state.is_loading {
         drop(proxy_state);
         let _ = req.respond(error_response(
@@ -45,15 +43,85 @@ pub fn handle_proxy_request(
     let mut request_body = Vec::new();
     let reader = req.as_reader();
     let _ = reader.read_to_end(&mut request_body);
+    let request_body_len = request_body.len();
 
-    // Try to resolve target port from the `model` field in the request payload.
     let target_port = resolve_target_port(&proxy_state, &request_body);
     drop(proxy_state);
+
+    // Council model interception: route to CouncilEngine locally.
+    if let Some(model_id) = extract_model_from_body(&request_body) {
+        if is_council_model(&model_id) {
+            let pipeline_config = req
+                .headers()
+                .iter()
+                .find(|h| {
+                    h.field
+                        .as_str()
+                        .as_str()
+                        .eq_ignore_ascii_case("x-swai-pipeline")
+                })
+                .and_then(|h| parse_pipeline_header(h.value.as_str()))
+                .unwrap_or_default();
+
+            let primary_port = match state.lock() {
+                Ok(s) => s.primary_port,
+                Err(_) => None,
+            };
+            let primary_port = match primary_port {
+                Some(p) => p,
+                None => {
+                    let _ = req.respond(error_response(
+                        503,
+                        "No active model server for council execution",
+                    ));
+                    return;
+                }
+            };
+
+            let prompt =
+                extract_prompt_from_body(&request_body).unwrap_or_else(|| "No prompt".into());
+            let executor = ProxyExecutor {
+                client: client.clone(),
+                primary_port,
+            };
+            let engine = CouncilEngine::new(pipeline_config, executor);
+            let outcome = engine.execute(&prompt);
+            let sse_events = build_council_sse_events(&outcome, &model_id);
+
+            let streaming_body = ResponsesStreamingBody {
+                events: sse_events,
+                pos: 0,
+            };
+            let response_headers = vec![
+                Header::from_bytes(b"content-type", b"text/event-stream").unwrap_or_else(|_| {
+                    Header::from_bytes("content-type", b"text/event-stream")
+                        .expect("should never fail")
+                }),
+                Header::from_bytes(b"cache-control", b"no-cache").unwrap_or_else(|_| {
+                    Header::from_bytes("cache-control", b"no-cache").expect("should never fail")
+                }),
+                Header::from_bytes(b"connection", b"keep-alive").unwrap_or_else(|_| {
+                    Header::from_bytes("connection", b"keep-alive").expect("should never fail")
+                }),
+            ];
+
+            let tiny_response = Response::new(
+                tiny_http::StatusCode(200),
+                response_headers,
+                Box::new(streaming_body),
+                None,
+                None,
+            );
+            if let Err(e) = req.respond(tiny_response) {
+                debug!("failed to respond to council client: {}", e);
+            }
+            return;
+        }
+    }
 
     let target_port = match target_port {
         Some(port) => port,
         None => {
-            // No matching model found — fall back to primary.
             let primary = match state.lock() {
                 Ok(s) => s.primary_port,
                 Err(_) => None,
@@ -68,7 +136,6 @@ pub fn handle_proxy_request(
         }
     };
 
-    // Handle OpenAI /v1/models endpoint to list all currently running models.
     let path_and_query = req.url().to_string();
     if req.method().as_str() == "GET"
         && (path_and_query == "/v1/models" || path_and_query == "/models")
@@ -76,27 +143,17 @@ pub fn handle_proxy_request(
         handle_v1_models(req, &state);
         return;
     }
-
-    // Ollama endpoint translation — handle before generic forwarding.
     if is_ollama_endpoint(&path_and_query) {
         match path_and_query.as_str() {
-            "/api/tags" => {
-                handle_ollama_tags(req, &state);
-                return;
-            }
-            "/api/generate" => {
-                handle_ollama_generate(req, state, client, target_port);
-                return;
-            }
-            "/api/chat" => {
-                handle_ollama_chat(req, state, client, target_port);
-                return;
-            }
+            "/api/tags" => handle_ollama_tags(req, &state),
+            "/api/generate" => handle_ollama_generate(req, state, client, target_port),
+            "/api/chat" => handle_ollama_chat(req, state, client, target_port),
             _ => {}
         }
+        return;
     }
 
-    // Build headers for the forwarded request, stripping hop-by-hop headers
+    // Build headers for the forwarded request, stripping hop-by-hop headers.
     let mut forward_headers = Vec::new();
     for header in req.headers() {
         let field_name = header.field.as_str();
@@ -111,216 +168,89 @@ pub fn handle_proxy_request(
         );
     }
 
-    let is_responses = path_and_query.contains("/v1/responses");
+    // Forward the request to the target model server.
+    let target_url = format!("http://localhost:{}/{}", target_port, path_and_query);
+    let method_str = req.method().as_str();
+    let mut builder = client.request(
+        method_str.parse().unwrap_or(reqwest::Method::GET),
+        &target_url,
+    );
 
-    if is_responses {
-        let active_model_id = "swai-active-model";
-        match responses_adapter(&request_body, active_model_id) {
-            Ok(translated) => {
-                request_body = match serde_json::to_vec(&translated) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        debug!("failed to serialize translated responses body: {}", e);
-                        let _ = req.respond(error_response(500, "Failed to translate request"));
-                        return;
-                    }
-                };
-            }
-            Err(e) => {
-                debug!("responses adapter failed: {}", e);
-                let _ = req.respond(error_response(400, &e));
-                return;
-            }
-        }
+    // Set headers on the forwarded request.
+    for header in forward_headers.iter() {
+        builder = builder.header(header.field.as_str().as_str(), header.value.as_str());
     }
 
-    // Normalize Codex payloads for non-Responses OpenAI chat endpoints.
-    if !request_body.is_empty() && path_and_query.contains("/v1/chat/completions") {
-        if let Ok(mut json_val) = serde_json::from_slice::<serde_json::Value>(&request_body) {
-            normalize_codex_payload(&mut json_val);
-            if let Ok(normalized_bytes) = serde_json::to_vec(&json_val) {
-                request_body = normalized_bytes;
+    // Handle body based on HTTP method.
+    let response = match method_str {
+        "POST" | "PUT" => {
+            if request_body.is_empty() {
+                builder.send()
+            } else {
+                builder.body(request_body).send()
             }
         }
-    }
-
-    // Process Anthropic /v1/messages: auto-compact, checkpoint, and anti-hallucination guard
-    if !request_body.is_empty() && path_and_query.contains("/v1/messages") {
-        if let Ok(mut json_val) = serde_json::from_slice::<serde_json::Value>(&request_body) {
-            process_anthropic_payload(&mut json_val, request_body.len(), &state, target_port);
-            if let Ok(normalized_bytes) = serde_json::to_vec(&json_val) {
-                request_body = normalized_bytes;
-            }
-        }
-    }
-
-    let effective_path = if is_responses {
-        path_and_query.replacen("/v1/responses", "/v1/chat/completions", 1)
-    } else {
-        path_and_query.clone()
-    };
-    let target_url = format!("http://127.0.0.1:{}{}", target_port, effective_path);
-
-    let method = match req.method().as_str() {
-        "POST" => reqwest::Method::POST,
-        "PUT" => reqwest::Method::PUT,
-        "DELETE" => reqwest::Method::DELETE,
-        "PATCH" => reqwest::Method::PATCH,
-        "HEAD" => reqwest::Method::HEAD,
-        "OPTIONS" => reqwest::Method::OPTIONS,
-        _ => reqwest::Method::GET,
+        _ => builder.send(),
     };
 
-    let mut request_builder = client.request(method, &target_url);
-
-    for header in &forward_headers {
-        let field_name = std::str::from_utf8(header.field.as_str().as_bytes()).unwrap_or("");
-        if field_name.eq_ignore_ascii_case("content-length") {
-            continue;
-        }
-        request_builder = request_builder.header(field_name, header.value.as_str());
-    }
-
-    if !request_body.is_empty() {
-        request_builder = request_builder.body(request_body.clone());
-    }
-
-    let is_get = req.method().as_str() == "GET";
-    let is_models_endpoint = req.url().starts_with("/v1/models");
-
-    if is_models_endpoint && is_get {
-        let has_auth = req.headers().iter().any(|h| {
-            h.field.as_str() == "authorization"
-                || h.field.as_str() == "Authorization"
-                || h.field.as_str() == "AUTHORIZATION" && h.value.as_str().starts_with("Bearer ")
-        });
-
-        if let Some(builder) = request_builder.try_clone() {
-            if let Ok(resp) = builder.send() {
-                let status = resp.status().as_u16();
-                if let Ok(body_bytes) = resp.bytes() {
-                    if let Ok(mut json_val) =
-                        serde_json::from_slice::<serde_json::Value>(&body_bytes)
-                    {
-                        if let Some(data_arr) =
-                            json_val.get_mut("data").and_then(|d| d.as_array_mut())
-                        {
-                            let mut extra_items = Vec::new();
-                            for item in data_arr.iter_mut() {
-                                if let Some(obj) = item.as_object_mut() {
-                                    if has_auth {
-                                        obj.insert(
-                                            "object".to_string(),
-                                            serde_json::Value::String("model".to_string()),
-                                        );
-                                    } else {
-                                        let clean_id = if let Some(raw_id) =
-                                            obj.get("id").and_then(|v| v.as_str())
-                                        {
-                                            std::path::Path::new(raw_id)
-                                                .file_stem()
-                                                .and_then(|s| s.to_str())
-                                                .unwrap_or("swai-model")
-                                                .replace("-Q4_K_M", "")
-                                                .replace("-Q4_K_S", "")
-                                                .replace("-Q5_K_M", "")
-                                                .replace("-Q8_0", "")
-                                        } else {
-                                            "swai-model".to_string()
-                                        };
-
-                                        obj.insert(
-                                            "id".to_string(),
-                                            serde_json::Value::String(clean_id),
-                                        );
-
-                                        let mut spoof_obj = obj.clone();
-                                        spoof_obj.insert(
-                                            "id".to_string(),
-                                            serde_json::Value::String(
-                                                "claude-sonnet-4-5".to_string(),
-                                            ),
-                                        );
-                                        extra_items.push(serde_json::Value::Object(spoof_obj));
-                                    }
-                                }
-                            }
-                            data_arr.extend(extra_items);
-                        }
-                        let modified_bytes =
-                            serde_json::to_vec(&json_val).unwrap_or_else(|_| body_bytes.to_vec());
-                        let mut response_headers = Vec::new();
-                        response_headers
-                            .push(Header::from_bytes("content-type", b"application/json").unwrap());
-                        response_headers.push(
-                            Header::from_bytes(
-                                "content-length",
-                                modified_bytes.len().to_string().as_bytes(),
-                            )
-                            .unwrap(),
-                        );
-                        let tiny_response = Response::new(
-                            tiny_http::StatusCode(status),
-                            response_headers,
-                            std::io::Cursor::new(modified_bytes),
-                            None,
-                            None,
-                        );
-                        let _ = req.respond(tiny_response);
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    let response = match request_builder.send() {
+    // Handle the response from the target model server.
+    let response = match response {
         Ok(resp) => resp,
         Err(e) => {
-            debug!("forward failed to model server {}: {}", target_port, e);
-            let _ = req.respond(error_response(503, "Model server unavailable"));
+            debug!("failed to forward request to {}: {}", target_url, e);
+            let _ = req.respond(error_response(502, "Failed to connect to model server"));
             return;
         }
     };
 
     let status = response.status().as_u16();
-    let resp_headers = response.headers();
-
-    let mut response_headers = Vec::new();
-    for (name, value) in resp_headers.iter() {
-        if is_hop_by_hop_header(name.as_str()) {
-            continue;
-        }
-        response_headers.push(
-            Header::from_bytes(name.as_str(), value.as_bytes()).unwrap_or_else(|_| {
-                Header::from_bytes(name.as_str(), b"")
+    let response_headers: Vec<Header> = response
+        .headers()
+        .iter()
+        .map(|(name, value)| {
+            Header::from_bytes(name.as_str().as_bytes(), value.as_bytes()).unwrap_or_else(|_| {
+                Header::from_bytes(name.as_str().as_bytes(), b"")
                     .expect("header construction should never fail")
-            }),
-        );
+            })
+        })
+        .collect();
+
+    // Get the response body for streaming.
+    let response_bytes = match response.bytes() {
+        Ok(b) => b,
+        Err(e) => {
+            debug!("failed to read response body: {}", e);
+            let _ = req.respond(error_response(502, "Failed to read model response"));
+            return;
+        }
+    };
+
+    // Process anthropic payloads if needed.
+    let mut processed_bytes = response_bytes.to_vec();
+    if path_and_query.contains("/v1/messages") && method_str == "POST" {
+        if let Ok(mut json_val) = serde_json::from_slice::<serde_json::Value>(&processed_bytes) {
+            process_anthropic_payload(&mut json_val, request_body_len, &state, target_port);
+            if let Ok(serialized) = serde_json::to_vec(&json_val) {
+                processed_bytes = serialized;
+            }
+        }
     }
 
-    if let Some(content_length) = response.content_length() {
-        response_headers.push(
-            Header::from_bytes("content-length", content_length.to_string().as_bytes())
-                .unwrap_or_else(|_| {
-                    Header::from_bytes("content-length", b"0")
-                        .expect("header construction should never fail")
-                }),
-        );
+    // Normalize codex payloads if needed.
+    if path_and_query.contains("/v1/responses") && method_str == "POST" {
+        if let Ok(mut json_val) = serde_json::from_slice::<serde_json::Value>(&processed_bytes) {
+            normalize_codex_payload(&mut json_val);
+            if let Ok(serialized) = serde_json::to_vec(&json_val) {
+                processed_bytes = serialized;
+            }
+        }
     }
 
+    // Translate OpenAI SSE responses to the Responses API format if needed.
     let is_responses_api = path_and_query.contains("/v1/responses");
 
     if is_responses_api {
-        let body_bytes = match response.bytes() {
-            Ok(b) => b,
-            Err(e) => {
-                debug!("failed to read responses API response body: {}", e);
-                let _ = req.respond(error_response(502, "Failed to read model response"));
-                return;
-            }
-        };
-        let body_str = String::from_utf8_lossy(&body_bytes).to_string();
+        let body_str = String::from_utf8_lossy(&processed_bytes).to_string();
         let translated_events = translate_openai_sse_to_responses(&body_str, "swai-active-model");
         let streaming_body = ResponsesStreamingBody {
             events: translated_events,
@@ -339,17 +269,10 @@ pub fn handle_proxy_request(
             debug!("failed to respond to responses API client: {}", e);
         }
     } else {
-        let streaming_body = StreamingBody {
-            reader: response,
-            is_responses_api: false,
-            sent_completion: false,
-            leftover: Vec::new(),
-        };
-
         let tiny_response = Response::new(
             tiny_http::StatusCode(status),
             response_headers,
-            Box::new(streaming_body),
+            Box::new(std::io::Cursor::new(processed_bytes)),
             None,
             None,
         );
@@ -365,31 +288,22 @@ pub fn resolve_target_port(state: &ProxyState, body: &[u8]) -> Option<u16> {
     if body.is_empty() {
         return None;
     }
-
     let has_model_key = body
         .windows(7)
         .any(|w| w.eq_ignore_ascii_case(b"\"model\"") || w.eq_ignore_ascii_case(b"'model'"));
     if !has_model_key {
         return None;
     }
-
-    let json_val = match serde_json::from_slice::<serde_json::Value>(body) {
-        Ok(v) => v,
-        Err(_) => return None,
-    };
-
+    let json_val = serde_json::from_slice::<serde_json::Value>(body).ok()?;
     let model_id = json_val.get("model").and_then(|m| m.as_str()).unwrap_or("");
-
     if model_id.is_empty() {
         return None;
     }
-
     for (id, &port) in &state.active_models {
         if id == model_id {
             return Some(port);
         }
     }
-
     None
 }
 
@@ -404,7 +318,7 @@ pub fn is_hop_by_hop_header(name: &str) -> bool {
             | "te"
             | "trailer"
             | "transfer-encoding"
-            | "upgrade",
+            | "upgrade"
     )
 }
 
@@ -418,4 +332,20 @@ pub fn error_response(status: u16, message: &str) -> Response<std::io::Cursor<Ve
                 Header::from_bytes("content-type", b"application/json").expect("should never fail")
             }),
         )
+}
+
+/// Extract the user's prompt from a chat completions JSON body.
+pub fn extract_prompt_from_body(body: &[u8]) -> Option<String> {
+    let json_val = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    let messages = json_val.get("messages").and_then(|m| m.as_array())?;
+    for msg in messages {
+        if let Some(role) = msg.get("role").and_then(|r| r.as_str()) {
+            if role == "user" || role == "assistant" {
+                if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
+                    return Some(content.to_string());
+                }
+            }
+        }
+    }
+    None
 }

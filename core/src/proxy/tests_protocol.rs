@@ -354,4 +354,34 @@ mod tests {
         let resp_503 = error_response(503, "service unavailable");
         assert_eq!(resp_503.status_code(), tiny_http::StatusCode(503));
     }
+
+    #[test]
+    fn test_is_hop_by_hop_header() {
+        use super::super::router::is_hop_by_hop_header;
+        assert!(is_hop_by_hop_header("connection"));
+        assert!(is_hop_by_hop_header("Connection"));
+        assert!(is_hop_by_hop_header("keep-alive"));
+        assert!(is_hop_by_hop_header("transfer-encoding"));
+        assert!(!is_hop_by_hop_header("content-type"));
+        assert!(!is_hop_by_hop_header("authorization"));
+    }
+
+    #[test]
+    fn test_resolve_target_port() {
+        use super::super::router::resolve_target_port;
+        let mut state = super::super::state::ProxyState::new();
+        state.add_model("qwen-32b".to_string(), 8080);
+
+        let body = br#"{"model": "qwen-32b", "messages": []}"#;
+        assert_eq!(resolve_target_port(&state, body), Some(8080));
+
+        let unknown_model = br#"{"model": "unknown-model", "messages": []}"#;
+        assert_eq!(resolve_target_port(&state, unknown_model), None);
+
+        let no_model = b"{}";
+        assert_eq!(resolve_target_port(&state, no_model), None);
+
+        let empty = b"";
+        assert_eq!(resolve_target_port(&state, empty), None);
+    }
 }

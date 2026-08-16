@@ -39,6 +39,7 @@ pub struct PipelineStage {
     #[serde(default = "default_generator")]
     pub role: CouncilRole,
     /// Prompt template string with `{input}` placeholder.
+    #[serde(default)]
     pub prompt_template: String,
     /// Sampling temperature (0.0–2.0). Defaults to 0.7.
     #[serde(default = "default_temperature")]

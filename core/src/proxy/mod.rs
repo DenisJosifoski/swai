@@ -6,6 +6,7 @@
 //! ProcessManager.
 
 pub mod anthropic;
+pub mod council;
 pub mod ollama;
 pub mod ollama_chat;
 pub mod ollama_generate;
@@ -17,6 +18,8 @@ pub mod server;
 pub mod session_tracker;
 pub mod state;
 pub mod streaming;
+#[cfg(test)]
+mod tests_council;
 #[cfg(test)]
 mod tests_protocol;
 #[cfg(test)]
