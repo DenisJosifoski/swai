@@ -5,6 +5,7 @@ use std::sync::Arc;
 use gtk::prelude::*;
 use gtk4 as gtk;
 
+mod arena;
 mod import_wizard;
 mod logs_panel;
 mod manage_dialog;

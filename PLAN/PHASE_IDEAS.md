@@ -72,6 +72,92 @@ Add dedicated storage cleanup actions inside the Preferences dialog (System / St
 
 ---
 
+## 🤖 Two-Model Architecture: Background Scribe & Diff-Grounded Milestone Ledger
+
+### Original Concept:
+> *"what I want to say is: Lets say I have ornith 35B as master/coding model. Then beside him, I load one more, small model who only reads what coding model writes (not what he reads) and summarize that into single file via SKILL (or something, whatever). Whenever coding model gets lost or gets trapped into loop, council point him to that file to read what was done, so coding model knows where he stopped. Makes sense or not? And this would be available only if user actually load 2 models."*
+
+### Refined Architecture & Design Decisions:
+
+#### 1. Diff-Grounded Summarization (Deterministic Input vs Hallucination)
+- **Never summarize chat transcripts**: Models can hallucinate progress in their conversational text before writing code.
+- **Feed actual disk diffs**: SWAI captures deterministic `git diff` deltas and `write_to_file` / `replace_file_content` events, passing only genuine code modifications to the Scribe.
+- Result: 100% grounded truth without hallucinated milestones.
+
+#### 2. Structured Ledger Schema
+The Scribe outputs to a strict, structured markdown schema:
+```markdown
+# Session Milestone Ledger (Verified by Scribe)
+
+## Completed Changes
+- `core/src/proxy/router.rs`: Added `is_council_model()` and `parse_pipeline_header()`.
+- `app/src/arena/view.rs`: Created visual cards for Draft, Critique, and Consensus.
+
+## Current Active Blocker
+- Compiler error on `app/src/arena/view.rs:97`: Mismatched `gtk4::WrapMode` vs `pango::WrapMode`.
+
+## Last Verified Working State
+- `swai-core` unit tests: 259/259 passed.
+```
+
+#### 3. Two-Model Execution & Zero GPU VRAM Penalty
+```
+┌────────────────────────────────────────────────────────┐
+│                      SWAI PROXY                        │
+│                                                        │
+│  [Ornith 35B (GPU)] ───Writes Code───► [Filesystem]   │
+│           │                                  │         │
+│   (When stuck in loop)                    git diff     │
+│           ▲                                  ▼         │
+│           │ Injects Ledger            [1.5B/3B (CPU)]  │
+│           └─────────────────────────────── Scribe      │
+└────────────────────────────────────────────────────────┘
+```
+- **CPU Offloading**: The 1.5B/3B Scribe can run entirely in CPU RAM (`--ngl 0`), using ~1.5 GB system memory and **0 MB GPU VRAM**, keeping 100% of GPU resources available for the 35B master model.
+- **Passive Operation**: Scribe runs asynchronously in the background with zero latency penalty on master turns.
+
+#### 4. Event Triggers & State Transition Lifecycle
+SWAI triggers Scribe updates on three discrete deterministic event channels:
+1. **`FileWriteEvent` (File Created / Edited)**:
+   - Captures `git diff` delta of touched file.
+   - Appends/updates `[Completed Changes]` section.
+   - Automatically marks any active blocker referencing that file as *under resolution*.
+2. **`CommandResultEvent` (Exit Code > 0 / Compiler Error)**:
+   - Extracts exact error code and target file:line (e.g. `error[E0515]: cannot return value referencing function parameter 'w' on window.rs:119`).
+   - Updates `[Current Active Blocker]` with the latest 2–3 failure items.
+3. **`TestPassEvent` (Exit Code == 0 on Build/Test)**:
+   - Parses deterministic test counter (e.g. `259 passed; 0 failed`).
+   - Updates `[Last Verified Working State]` with commit/time and test count.
+   - Clears `[Current Active Blocker]`.
+
+#### 5. Invocation Strategy: Per-Event Streaming vs On-Demand
+- **Per-Event Incremental Updates (Selected)**: Rather than re-parsing the entire diff history when a loop occurs, SWAI pushes tiny async event snippets (~50 tokens each) to the Scribe queue on every write/test event.
+- **Instant Intervention**: When the Loop Breaker trips (5+ turns without writes), the ledger file is already 100% pre-compiled on disk and ready for immediate, zero-latency injection into the master model's prompt.
+
+#### 6. Authoritative Loop Breaker Intervention
+When SWAI's deterministic loop heuristics trip (5+ turns without file writes, or repeated read cycles), the proxy injects:
+```markdown
+<system-reminder>
+⚠️ LOOP DETECTED: You have made no code modifications for 5 turns.
+Here is your verified milestone ledger from the filesystem:
+
+- Completed: Created ArenaWindow, history.rs, view.rs
+- Active Blocker: Fix compile error on window.rs:119 (use downcast::<Label>().ok())
+- Last Verified: cargo test -p swai-core (259/259 passed)
+
+DO NOT re-read existing files. Trust this ledger and proceed directly with your implementation.
+</system-reminder>
+```
+
+#### 7. Graceful Fallback
+- **If 2 models are active**: Scribe provides real-time diff-grounded milestone tracking on CPU RAM.
+- **If 1 model is active**: SWAI uses the rule-based Loop Breaker.
+
+---
+
 *(Completed phases 1–22 and retired Phase 21 are documented in `PROGRESS.md`).*
+
+
+
 
 
