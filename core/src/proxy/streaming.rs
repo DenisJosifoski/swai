@@ -37,34 +37,58 @@ impl Read for StreamingBody {
     }
 }
 
+use std::sync::mpsc::Receiver;
+
 /// Streaming body that translates OpenAI SSE chunks into Responses API SSE events.
 ///
 /// Pre-parses the full OpenAI SSE response body into a sequence of Responses API
 /// events (response.created, output_item.added, content_part.added, text.delta × N,
 /// response.completed) and yields them one at a time via the `Read` trait.
+pub enum ResponsesSource {
+    Events { events: Vec<Vec<u8>>, pos: usize },
+    Receiver { receiver: Receiver<Vec<u8>> },
+}
+
 pub struct ResponsesStreamingBody {
-    /// Pre-formatted Responses API SSE events ready to be yielded.
-    pub events: Vec<Vec<u8>>,
-    pub pos: usize,
+    pub source: ResponsesSource,
+    pub leftover: Vec<u8>,
 }
 
 impl Read for ResponsesStreamingBody {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
-        if self.pos >= self.events.len() {
-            return Ok(0);
+        if !self.leftover.is_empty() {
+            let to_copy = std::cmp::min(buf.len(), self.leftover.len());
+            buf[..to_copy].copy_from_slice(&self.leftover[..to_copy]);
+            self.leftover.drain(..to_copy);
+            return Ok(to_copy);
         }
 
-        let event = &self.events[self.pos];
-        self.pos += 1;
-
-        let to_copy = std::cmp::min(buf.len(), event.len());
-        buf[..to_copy].copy_from_slice(&event[..to_copy]);
-        if event.len() > to_copy {
-            // Split the event: keep the remainder for the next read.
-            let remainder = event[to_copy..].to_vec();
-            self.events.insert(self.pos, remainder);
+        match &mut self.source {
+            ResponsesSource::Events { events, pos } => {
+                if *pos >= events.len() {
+                    return Ok(0);
+                }
+                let event = &events[*pos];
+                *pos += 1;
+                let to_copy = std::cmp::min(buf.len(), event.len());
+                buf[..to_copy].copy_from_slice(&event[..to_copy]);
+                if event.len() > to_copy {
+                    self.leftover.extend_from_slice(&event[to_copy..]);
+                }
+                Ok(to_copy)
+            }
+            ResponsesSource::Receiver { receiver } => match receiver.recv() {
+                Ok(event) => {
+                    let to_copy = std::cmp::min(buf.len(), event.len());
+                    buf[..to_copy].copy_from_slice(&event[..to_copy]);
+                    if event.len() > to_copy {
+                        self.leftover.extend_from_slice(&event[to_copy..]);
+                    }
+                    Ok(to_copy)
+                }
+                Err(_) => Ok(0),
+            },
         }
-        Ok(to_copy)
     }
 }
 

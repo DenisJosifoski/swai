@@ -219,11 +219,7 @@ fn add_stage_row(
     let stg = stage.clone();
     let mids_c = mids.clone();
     mdd.connect_notify(Some("selected".into()), move |dd, _| {
-        let mid = if dd.selected() as usize == 0 {
-            String::new()
-        } else {
-            mids_c[dd.selected() as usize - 1].clone()
-        };
+        let mid = mids_c[dd.selected() as usize].clone();
         stg.lock().unwrap().model_id = mid;
     });
 

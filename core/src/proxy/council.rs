@@ -12,7 +12,7 @@ use crate::council::CouncilPipelineConfig;
 ///
 /// Matches "council" exactly or any model starting with "council:" prefix.
 pub fn is_council_model(model: &str) -> bool {
-    model == "council" || model.starts_with("council:")
+    model == "council" || model == "council-pipeline" || model.starts_with("council:")
 }
 
 /// Parse an optional X-SWAI-Pipeline header into a CouncilPipelineConfig.
@@ -23,21 +23,35 @@ pub fn parse_pipeline_header(header_value: &str) -> Option<CouncilPipelineConfig
 /// Extract the `model` field from a JSON request body.
 pub fn extract_model_from_body(body: &[u8]) -> Option<String> {
     let json_val = serde_json::from_slice::<serde_json::Value>(body).ok()?;
-    json_val
-        .get("model")
-        .and_then(|m| m.as_str())
-        .map(String::from)
+    let model_str = json_val.get("model").and_then(|m| m.as_str())?;
+    let stripped = if model_str.starts_with("anthropic.") {
+        &model_str[10..]
+    } else {
+        model_str
+    };
+    Some(stripped.to_string())
 }
+
+use crate::proxy::state::ProxyState;
+use std::sync::{Arc, Mutex};
 
 /// Proxy executor that forwards council stages to the primary model backend.
 pub struct ProxyExecutor {
     pub client: Client,
     pub primary_port: u16,
+    pub state: Arc<Mutex<ProxyState>>,
 }
 
 impl Executor for ProxyExecutor {
     fn execute(&self, stage: &PipelineStage, input: &str) -> Result<String, String> {
-        let url = format!("http://localhost:{}/v1/chat/completions", self.primary_port);
+        let target_port = {
+            if let Ok(state) = self.state.lock() {
+                state.active_models.iter().find(|(id, _)| *id == &stage.model_id).map(|(_, port)| *port).unwrap_or(self.primary_port)
+            } else {
+                self.primary_port
+            }
+        };
+        let url = format!("http://localhost:{}/v1/chat/completions", target_port);
         let content = if !stage.prompt_template.is_empty() {
             stage.prompt_template.replace("{input}", input)
         } else {
@@ -88,7 +102,35 @@ impl Executor for ProxyExecutor {
 /// Build SSE events for streaming a council debate outcome.
 pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<Vec<u8>> {
     let mut events = Vec::new();
-    let mut seq = 1u64;
+
+    let transcript = match outcome {
+        DebateOutcome::Success { transcript, .. } => transcript,
+        DebateOutcome::Partial { transcript, .. } => transcript,
+        DebateOutcome::Aborted { transcript, .. } => transcript,
+    };
+
+    let mut log_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    log_dir.push("swai");
+    log_dir.push("logs");
+    log_dir.push("council_transcripts");
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    let log_path = log_dir.join(format!("{}.md", transcript.session_id));
+    let mut md = String::new();
+    md.push_str(&format!("# Council Debate Transcript: {}\n\n", transcript.session_id));
+    md.push_str(&format!("## Original Prompt\n```\n{}\n```\n\n", transcript.input_prompt));
+    for turn in &transcript.turns {
+        md.push_str(&format!("## Turn {} - {:?} ({})\n", turn.turn_index, turn.role, turn.model_id));
+        md.push_str(&format!("Duration: {:.2?}\n", turn.duration));
+        if let Some(err) = &turn.error {
+            md.push_str(&format!("**Error:** {}\n", err));
+        } else {
+            md.push_str(&format!("**Output:**\n\n```\n{}\n```\n", turn.output));
+        }
+        md.push_str("\n---\n\n");
+    }
+    let _ = std::fs::write(&log_path, md);
+    tracing::info!("Council transcript saved to {}", log_path.display());
 
     // debate.started event.
     events.push(
@@ -98,7 +140,6 @@ pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<
         )
         .into_bytes(),
     );
-    seq += 1;
 
     // Stream the final response as text deltas (chunked for SSE).
     let final_text = match outcome {
@@ -112,8 +153,17 @@ pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<
         }
         DebateOutcome::Aborted { reason, .. } => format!("Debate aborted: {}", reason),
     };
+    // Anthropic message_start
+    events.push(format!(
+        "event: message_start\ndata: {{\"type\": \"message_start\", \"message\": {{\"id\": \"msg_council\", \"type\": \"message\", \"role\": \"assistant\", \"content\": [], \"model\": \"{}\", \"stop_reason\": null, \"stop_sequence\": null, \"usage\": {{\"input_tokens\": 0, \"output_tokens\": 0}}}}}}\n\n",
+        model_id
+    ).into_bytes());
 
-    // Chunk the text into ~50 char segments for realistic streaming.
+    // Anthropic content_block_start
+    events.push(
+        "event: content_block_start\ndata: {\"type\": \"content_block_start\", \"index\": 0, \"content_block\": {\"type\": \"text\", \"text\": \"\"}}\n\n".to_string().into_bytes()
+    );
+
     let chunk_size = 50;
     let chars: Vec<char> = final_text.chars().collect();
     let mut accumulated = String::new();
@@ -125,21 +175,16 @@ pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<
             let delta = &accumulated[prev_len..];
             let escaped = escape_sse_text(delta);
             events.push(format!(
-                "event: text.delta\ndata: {{\"type\":\"text.delta\",\"sequence_number\":{},\"delta\":\"{}\"}}\n\n",
-                seq, escaped
+                "event: content_block_delta\ndata: {{\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {{\"type\": \"text_delta\", \"text\": \"{}\"}}}}\n\n",
+                escaped
             ).into_bytes());
-            seq += 1;
             prev_len = i + 1;
         }
     }
 
-    // debate.completed event.
+    // Anthropic content_block_stop & message_delta
     events.push(
-        format!(
-            "event: debate.completed\ndata: {{\"type\":\"debate.completed\",\"sequence_number\":{}}}\n\n",
-            seq
-        )
-        .into_bytes(),
+        "event: content_block_stop\ndata: {\"type\": \"content_block_stop\", \"index\": 0}\n\nevent: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\", \"stop_sequence\": null}, \"usage\": {\"output_tokens\": 10}}\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n".to_string().into_bytes()
     );
     events
 }

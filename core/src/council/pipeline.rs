@@ -108,7 +108,10 @@ impl<E: Executor> CouncilEngine<E> {
     }
 
     fn run_generator(&self, state: &mut DebateState) {
-        let stage = &self.config.stages[0];
+        let stage = self.config.stages.iter()
+            .find(|s| s.role == CouncilRole::Generator)
+            .unwrap_or_else(|| &self.config.stages[0]);
+
         let input = &state.transcript.input_prompt;
         let start = Instant::now();
 
@@ -135,11 +138,7 @@ impl<E: Executor> CouncilEngine<E> {
             .config
             .stages
             .iter()
-            .enumerate()
-            .filter(|(idx, s)| {
-                *idx > 0 && (s.role == CouncilRole::Auditor || s.role != CouncilRole::Synthesizer)
-            })
-            .map(|(_, s)| s)
+            .filter(|s| s.role == CouncilRole::Auditor)
             .collect();
 
         if auditors.is_empty() || state.draft.is_none() {

@@ -193,32 +193,37 @@ pub fn handle_v1_models(req: Request, state: &Arc<Mutex<ProxyState>>) {
     };
 
     let mut model_entries = Vec::new();
+    let now_iso = "2026-08-18T00:00:00Z";
+
     for model_id in proxy_state.active_models.keys() {
         model_entries.push(serde_json::json!({
-            "id": model_id,
-            "object": "model",
-            "created": 1700000000,
-            "owned_by": "swai",
-            "permission": []
+            "type": "model",
+            "id": format!("anthropic.{}", model_id),
+            "display_name": model_id,
+            "created_at": now_iso
         }));
     }
 
-    if model_entries.is_empty() && proxy_state.primary_port.is_some() {
+    if proxy_state.primary_port.is_some() {
         model_entries.push(serde_json::json!({
-            "id": "swai-model",
-            "object": "model",
-            "created": 1700000000,
-            "owned_by": "swai",
-            "permission": []
+            "type": "model",
+            "id": "anthropic.council-pipeline",
+            "display_name": "Council Pipeline",
+            "created_at": now_iso
         }));
     }
 
-    let payload = serde_json::json!({
-        "object": "list",
-        "data": model_entries
+    let first_id = model_entries.first().and_then(|e| e.get("id")).cloned().unwrap_or(serde_json::json!(""));
+    let last_id = model_entries.last().and_then(|e| e.get("id")).cloned().unwrap_or(serde_json::json!(""));
+
+    let response = serde_json::json!({
+        "data": model_entries,
+        "has_more": false,
+        "first_id": first_id,
+        "last_id": last_id
     });
 
-    let body = serde_json::to_vec(&payload).unwrap_or_default();
+    let body = serde_json::to_vec(&response).unwrap_or_default();
     let headers = vec![
         Header::from_bytes("content-type", b"application/json").unwrap(),
         Header::from_bytes("content-length", body.len().to_string().as_bytes()).unwrap(),

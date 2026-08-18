@@ -12,7 +12,7 @@ use super::ollama::{
 };
 use super::openai::{handle_v1_models, normalize_codex_payload};
 use super::state::ProxyState;
-use super::streaming::{translate_openai_sse_to_responses, ResponsesStreamingBody};
+use super::streaming::{translate_openai_sse_to_responses, ResponsesStreamingBody, ResponsesSource};
 use crate::council::CouncilEngine;
 use reqwest::blocking::Client;
 
@@ -51,7 +51,7 @@ pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, cli
     // Council model interception: route to CouncilEngine locally.
     if let Some(model_id) = extract_model_from_body(&request_body) {
         if is_council_model(&model_id) {
-            let pipeline_config = req
+            let mut pipeline_config = req
                 .headers()
                 .iter()
                 .find(|h| {
@@ -62,6 +62,24 @@ pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, cli
                 })
                 .and_then(|h| parse_pipeline_header(h.value.as_str()))
                 .unwrap_or_default();
+
+            if pipeline_config.stages.is_empty() {
+                if let Ok(home) = std::env::var("HOME") {
+                    let mut home_dir = std::path::PathBuf::from(home);
+                    home_dir.push(".config");
+                    home_dir.push("swai");
+                    home_dir.push("config.toml");
+                    if let Ok(content) = std::fs::read_to_string(home_dir) {
+                        if let Ok(parsed) = toml::from_str::<toml::Value>(&content) {
+                            if let Some(council_val) = parsed.get("council") {
+                                if let Ok(config) = council_val.clone().try_into::<crate::council::CouncilPipelineConfig>() {
+                                    pipeline_config = config;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             let primary_port = match state.lock() {
                 Ok(s) => s.primary_port,
@@ -83,14 +101,31 @@ pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, cli
             let executor = ProxyExecutor {
                 client: client.clone(),
                 primary_port,
+                state: state.clone(),
             };
             let engine = CouncilEngine::new(pipeline_config, executor);
-            let outcome = engine.execute(&prompt);
-            let sse_events = build_council_sse_events(&outcome, &model_id);
+            let (tx, rx) = std::sync::mpsc::channel();
+            
+            // Send immediate start event to prevent timeout
+            let _ = tx.send(format!(
+                "event: message_start\ndata: {{\"type\": \"message_start\", \"message\": {{\"id\": \"msg_council\", \"type\": \"message\", \"role\": \"assistant\", \"content\": [], \"model\": \"{}\", \"stop_reason\": null, \"stop_sequence\": null, \"usage\": {{\"input_tokens\": 0, \"output_tokens\": 0}}}}}}\n\n",
+                model_id
+            ).into_bytes());
+
+            std::thread::spawn(move || {
+                let outcome = engine.execute(&prompt);
+                let sse_events = build_council_sse_events(&outcome, &model_id);
+                // Skip the first message_start event since we already sent it
+                for event in sse_events.into_iter().skip(1) {
+                    if tx.send(event).is_err() {
+                        break;
+                    }
+                }
+            });
 
             let streaming_body = ResponsesStreamingBody {
-                events: sse_events,
-                pos: 0,
+                source: ResponsesSource::Receiver { receiver: rx },
+                leftover: Vec::new(),
             };
             let response_headers = vec![
                 Header::from_bytes(b"content-type", b"text/event-stream").unwrap_or_else(|_| {
@@ -137,8 +172,9 @@ pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, cli
     };
 
     let path_and_query = req.url().to_string();
+    let path = path_and_query.split('?').next().unwrap_or(&path_and_query);
     if req.method().as_str() == "GET"
-        && (path_and_query == "/v1/models" || path_and_query == "/models")
+        && (path == "/v1/models" || path == "/models")
     {
         handle_v1_models(req, &state);
         return;
@@ -256,8 +292,11 @@ pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, cli
         let body_str = String::from_utf8_lossy(&processed_bytes).to_string();
         let translated_events = translate_openai_sse_to_responses(&body_str, "swai-active-model");
         let streaming_body = ResponsesStreamingBody {
-            events: translated_events,
-            pos: 0,
+            source: ResponsesSource::Events {
+                events: translated_events,
+                pos: 0,
+            },
+            leftover: Vec::new(),
         };
 
         let tiny_response = Response::new(
@@ -339,11 +378,27 @@ pub fn error_response(status: u16, message: &str) -> Response<std::io::Cursor<Ve
 pub fn extract_prompt_from_body(body: &[u8]) -> Option<String> {
     let json_val = serde_json::from_slice::<serde_json::Value>(body).ok()?;
     let messages = json_val.get("messages").and_then(|m| m.as_array())?;
-    for msg in messages {
+    
+    // Iterate backwards to find the LAST user message
+    for msg in messages.iter().rev() {
         if let Some(role) = msg.get("role").and_then(|r| r.as_str()) {
-            if role == "user" || role == "assistant" {
+            if role == "user" {
+                // Handle string content
                 if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
                     return Some(content.to_string());
+                }
+                // Handle array content (Anthropic format)
+                if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
+                    let mut full_text = String::new();
+                    for block in content_arr {
+                        if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                            full_text.push_str(text);
+                            full_text.push('\n');
+                        }
+                    }
+                    if !full_text.is_empty() {
+                        return Some(full_text.trim().to_string());
+                    }
                 }
             }
         }
