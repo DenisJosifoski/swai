@@ -1,6 +1,6 @@
+#![allow(dead_code, unused)]
 use adw::prelude::*;
 use adw::{AboutDialog, ApplicationWindow};
-use gtk::prelude::*;
 use gtk::{MessageDialog, MessageType, Orientation, ResponseType};
 use gtk4 as gtk;
 use std::sync::{Arc, Mutex};
@@ -43,8 +43,7 @@ pub fn show_preferences_dialog(
 
     dialog.widget.connect_response(move |d, response| {
         if response == ResponseType::Ok {
-            let values = dialog_clone.values();
-            match save_preferences(&values, &config_path) {
+            match dialog_clone.save(&config_path) {
                 Ok(()) => {
                     tracing::info!("Preferences saved successfully");
                     if let Ok(new_cfg) = Config::load() {

@@ -1,4 +1,3 @@
-use gtk::prelude::*;
 use gtk::{FileChooserAction, ResponseType};
 use gtk4 as gtk;
 

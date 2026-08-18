@@ -38,9 +38,23 @@ pub struct ProxyExecutor {
 impl Executor for ProxyExecutor {
     fn execute(&self, stage: &PipelineStage, input: &str) -> Result<String, String> {
         let url = format!("http://localhost:{}/v1/chat/completions", self.primary_port);
+        let content = if !stage.prompt_template.is_empty() {
+            stage.prompt_template.replace("{input}", input)
+        } else {
+            input.to_string()
+        };
+        
+        let mut messages = Vec::new();
+        if let Some(ref sys) = stage.system_prompt {
+            if !sys.is_empty() {
+                messages.push(serde_json::json!({"role": "system", "content": sys}));
+            }
+        }
+        messages.push(serde_json::json!({"role": "user", "content": content}));
+
         let body = serde_json::json!({
             "model": stage.model_id,
-            "messages": [{"role": "user", "content": input}],
+            "messages": messages,
             "temperature": stage.temperature,
             "top_p": stage.top_p,
         });

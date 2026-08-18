@@ -157,7 +157,37 @@ DO NOT re-read existing files. Trust this ledger and proceed directly with your 
 
 *(Completed phases 1–22 and retired Phase 21 are documented in `PROGRESS.md`).*
 
+---
 
+## ⚡ UI Dashboard: Split Live Prompt/Generation Telemetry
 
+### Problem:
+Currently, the UI only displays the generation speed (`predicted_per_second` / "tok/s") in the ModelCard. The user cannot natively see the prompt evaluation speed inside SWAI, even though `prompt_per_second` is successfully extracted from the `llama-server` `/v1/slots` API payload in `core/src/proxy.rs` and `app/src/window/poller.rs`.
 
+### Proposed Architecture & Solution:
+1. **ModelCard UI Upgrade (`app/src/model_card/view.rs`)**:
+   - Add a small secondary `gtk::Label` below or beside the generation speed label.
+   - Use a muted, dim CSS class (e.g., `dim-label`) so it doesn't clutter the primary telemetry.
+2. **Data Pipeline Integration**:
+   - Update `ChannelMessage::SlotUpdate` to carry `prompt_per_second` alongside `predicted_per_second`.
+   - Implement `set_prompt_speed(&self, prompt_speed: f64)` in the `ModelCard` struct.
+3. **Behavioral Triggers**:
+   - Only display the label if `prompt_speed > 0.0`.
+   - Hide or fade the label when generation finishes.
 
+---
+
+## 🎛️ Optional Checkpointing Toggle (Preferences)
+
+### Problem:
+Context checkpointing (saving a milestone ledger of the agent's progress to prevent loops and context exhaustion) is incredibly valuable for smaller context models (32k–64k). However, for users running massive context models (like 128k or 262k), the risk of running out of context or looping is significantly lower, making the checkpointing system unnecessary overhead.
+
+### Proposed Solution:
+1. **Global Checkpoint Toggle (`app/src/preferences/`)**:
+   - Add a `Enable Context Checkpointing` switch inside the Preferences (or Checkpointing tab).
+   - Backed by a new `enable_checkpointing = true/false` field in the `config.toml` global section.
+2. **Proxy Bypass (`core/src/proxy/`)**:
+   - When the LLM calls a file-write tool (`write_to_file`, `replace_file_content`, etc.), the proxy intercepts it to generate a milestone diff.
+   - If `enable_checkpointing == false`, bypass this interception completely, significantly speeding up the proxy pipeline and saving the CPU Scribe workload.
+3. **Loop Breaker Disabling**:
+   - Tie the Loop Breaker heuristic logic to this toggle. If disabled, the proxy acts as a pure passthrough router without any loop intervention.

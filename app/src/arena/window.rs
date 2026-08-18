@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 //! SWAI — ArenaWindow: GTK4/Libadwaita debate arena desktop window.
 //!
 //! Provides a sidebar for browsing saved debates and a live stream view

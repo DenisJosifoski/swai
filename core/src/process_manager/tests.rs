@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{Config, GlobalSettings, PreferencesConfig};
+    use crate::council::CouncilPipelineConfig;
     use crate::process_manager::*;
 
     #[test]
@@ -42,6 +43,7 @@ mod tests {
                 max_concurrent_models: 4,
                 checkpoint_summarizer_model: None,
             },
+            council: CouncilPipelineConfig::default(),
         };
         let pm = ProcessManager::new(config);
         assert_eq!(pm.running_count(), 0);

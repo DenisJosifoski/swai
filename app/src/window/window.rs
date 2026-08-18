@@ -1,6 +1,5 @@
 use adw::prelude::*;
 use adw::ApplicationWindow;
-use gtk::prelude::*;
 use gtk::{Application, Box as GtkBox, MessageDialog, MessageType, Orientation, ResponseType};
 use gtk4 as gtk;
 use ksni::blocking::Handle;

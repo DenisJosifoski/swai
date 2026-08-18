@@ -187,7 +187,7 @@ pub fn handle_v1_models(req: Request, state: &Arc<Mutex<ProxyState>>) {
     let proxy_state = match state.lock() {
         Ok(s) => s,
         Err(_) => {
-            let _ = req.respond(error_response(500, "Internal proxy error"));
+            let _ = req.respond(Response::from_string("Internal error").with_status_code(500));
             return;
         }
     };

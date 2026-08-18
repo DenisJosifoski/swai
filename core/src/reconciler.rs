@@ -239,6 +239,7 @@ impl PortCheck for PortState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::council::CouncilPipelineConfig;
 
     #[test]
     fn test_port_check_on_free_port() {
@@ -326,6 +327,7 @@ mod tests {
             }],
             global: crate::config::GlobalSettings::default(),
             preferences: crate::config::PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
 
         let reconciler = Reconciler::new(config);
@@ -344,6 +346,7 @@ mod tests {
             models: vec![],
             global: crate::config::GlobalSettings::default(),
             preferences: crate::config::PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
 
         let reconciler = Reconciler::new(config);

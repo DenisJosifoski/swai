@@ -1,4 +1,3 @@
-use gtk::prelude::*;
 use gtk::{DropDown, FileChooserAction, ResponseType, SpinButton, StringList, Window};
 use gtk4 as gtk;
 

@@ -7,11 +7,10 @@
 //! execution modes.
 
 use crate::council::types::{
-    CouncilMode, CouncilPipelineConfig, CouncilRole, DebateOutcome, DebateTranscript,
+    CouncilPipelineConfig, CouncilRole, DebateOutcome, DebateTranscript,
     FallbackAction, PipelineStage, TurnResult,
 };
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Errors that can occur during council pipeline execution.
 #[derive(Debug, thiserror::Error)]

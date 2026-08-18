@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 //! SWAI — Visual card components for debate turn display.
 //!
 //! Color-coded cards for Generator Draft (Cyan), Auditor Critiques (Orange),

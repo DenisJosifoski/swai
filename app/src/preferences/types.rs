@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 use std::path::PathBuf;
 
 /// The values from the preferences form.

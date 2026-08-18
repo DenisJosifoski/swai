@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::config::*;
+    use crate::council::CouncilPipelineConfig;
     use std::path::PathBuf;
     use tempfile::TempDir;
 
@@ -44,6 +45,7 @@ mod tests {
             models: vec![],
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
         let result = Config::validate(&config, tmp.path());
         assert!(result.is_ok());
@@ -76,6 +78,7 @@ mod tests {
             ],
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
         let result = Config::validate(&config, tmp.path());
         assert!(result.is_err());
@@ -97,6 +100,7 @@ mod tests {
             }],
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
         let result = Config::validate(&config, tmp.path());
         assert!(result.is_err());
@@ -122,6 +126,7 @@ mod tests {
             models: vec![],
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
         assert!(config.auto_follow_logs());
     }
@@ -141,6 +146,7 @@ mod tests {
                 max_concurrent_models: 2,
                 checkpoint_summarizer_model: None,
             },
+            council: CouncilPipelineConfig::default(),
         };
 
         let serialized = toml::to_string_pretty(&config).unwrap();
@@ -176,6 +182,7 @@ auto_restart_on_context_full = true
             models: vec![],
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
         assert!(config.enable_notifications());
         assert!(config.notify_on_switch());
@@ -196,6 +203,7 @@ auto_restart_on_context_full = true
                 max_concurrent_models: 3,
                 checkpoint_summarizer_model: None,
             },
+            council: CouncilPipelineConfig::default(),
         };
 
         let serialized = toml::to_string_pretty(&config).unwrap();
@@ -230,6 +238,7 @@ auto_restart_on_context_full = true
             models: vec![],
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
         assert_eq!(config.max_concurrent_models(), 1);
     }
@@ -248,6 +257,7 @@ auto_restart_on_context_full = true
                 max_concurrent_models: 3,
                 checkpoint_summarizer_model: None,
             },
+            council: CouncilPipelineConfig::default(),
         };
 
         let serialized = toml::to_string_pretty(&config).unwrap();
@@ -302,6 +312,7 @@ auto_restart_on_context_full = true
                 max_concurrent_models: 1,
                 checkpoint_summarizer_model: Some("ornith-35b".to_string()),
             },
+            council: CouncilPipelineConfig::default(),
         };
 
         let serialized = toml::to_string_pretty(&config).unwrap();
@@ -338,6 +349,7 @@ auto_restart_on_context_full = true
             ],
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
 
         let models = config.configured_models();

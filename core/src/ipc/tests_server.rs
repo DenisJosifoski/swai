@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::config::{Config, GlobalSettings, ModelConfig, PreferencesConfig};
+    use crate::council::CouncilPipelineConfig;
     use crate::ipc::*;
     use crate::process_manager::ProcessManager;
     use crate::proxy::ProxyState;
@@ -77,6 +78,7 @@ mod tests {
             models,
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
         IpcState::new(config)
     }
@@ -120,6 +122,7 @@ mod tests {
             models: models.clone(),
             global: GlobalSettings::default(),
             preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
         };
         let mut pm = crate::process_manager::ProcessManager::new(config.clone());
         // Find the running model's port.

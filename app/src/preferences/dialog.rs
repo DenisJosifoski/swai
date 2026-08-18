@@ -1,13 +1,16 @@
+#![allow(dead_code, unused)]
 use gtk::prelude::*;
-use gtk::{DropDown, Orientation, ResponseType, SpinButton, Window};
+use gtk::{DropDown, Notebook, Orientation, ResponseType, SpinButton, Window};
 use gtk4 as gtk;
 
 use adw::{EntryRow, SwitchRow};
 
 use swai_core::config::Config;
 
+use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 
+use super::council_tab::{build_council_tab, CouncilTabState};
 use super::gateway_tab::add_gateway_section;
 use super::general_tab::{
     add_auto_follow_logs_row, add_auto_restart_row, add_autostart_on_login_row,
@@ -20,6 +23,7 @@ use super::types::PreferencesValues;
 #[derive(Clone)]
 pub struct PreferencesDialog {
     pub widget: gtk::Dialog,
+    notebook: Notebook,
     log_dir_entry: EntryRow,
     proxy_port_entry: EntryRow,
     auto_restart_switch: SwitchRow,
@@ -29,6 +33,7 @@ pub struct PreferencesDialog {
     autostart_switch: SwitchRow,
     max_concurrent_spin: SpinButton,
     summarizer_model_combo: DropDown,
+    council_tab_state: Arc<Mutex<CouncilTabState>>,
 }
 
 impl PreferencesDialog {
@@ -79,6 +84,11 @@ impl PreferencesDialog {
         }
     }
 
+    /// Extract the council pipeline config from the tab.
+    pub fn council_config(&self) -> swai_core::council::CouncilPipelineConfig {
+        self.council_tab_state.lock().unwrap().to_config()
+    }
+
     /// Create a new preferences dialog transient to the given parent window.
     pub fn new<T: IsA<Window>>(parent: &T, config: &Config) -> Self {
         let widget = gtk::Dialog::builder()
@@ -87,23 +97,31 @@ impl PreferencesDialog {
             .modal(true)
             .build();
 
-        let content_box = gtk::Box::new(Orientation::Vertical, 12);
-        content_box.set_margin_start(24);
-        content_box.set_margin_end(24);
-        content_box.set_margin_top(24);
-        content_box.set_margin_bottom(24);
+        // Use a notebook for tabbed interface.
+        let notebook = Notebook::new();
+        notebook.set_margin_start(12);
+        notebook.set_margin_end(12);
+        notebook.set_margin_top(12);
+        notebook.set_margin_bottom(12);
+
+        // Tab 1: General settings.
+        let general_page = gtk::Box::new(Orientation::Vertical, 12);
+        general_page.set_margin_start(24);
+        general_page.set_margin_end(24);
+        general_page.set_margin_top(24);
+        general_page.set_margin_bottom(24);
 
         // Log directory row.
-        let log_dir_entry = add_log_dir_row(&content_box, parent, config);
+        let log_dir_entry = add_log_dir_row(&general_page, parent, config);
 
         // Proxy port row.
-        let proxy_port_entry = add_proxy_port_row(&content_box, config);
+        let proxy_port_entry = add_proxy_port_row(&general_page, config);
 
         // Auto-restart row.
-        let auto_restart_switch = add_auto_restart_row(&content_box, config);
+        let auto_restart_switch = add_auto_restart_row(&general_page, config);
 
         // Auto-follow logs row.
-        let auto_follow_switch = add_auto_follow_logs_row(&content_box, config);
+        let auto_follow_switch = add_auto_follow_logs_row(&general_page, config);
 
         // Notification settings section header.
         let notif_header = gtk::Label::builder()
@@ -113,13 +131,13 @@ impl PreferencesDialog {
             .margin_top(18)
             .margin_bottom(6)
             .build();
-        content_box.append(&notif_header);
+        general_page.append(&notif_header);
 
         // Enable notifications switch.
-        let enable_notifications_switch = add_enable_notifications_row(&content_box, config);
+        let enable_notifications_switch = add_enable_notifications_row(&general_page, config);
 
         // Notify on switch switch.
-        let notify_on_switch_switch = add_notify_on_switch_row(&content_box, config);
+        let notify_on_switch_switch = add_notify_on_switch_row(&general_page, config);
 
         // System section header.
         let system_header = gtk::Label::builder()
@@ -129,21 +147,37 @@ impl PreferencesDialog {
             .margin_top(18)
             .margin_bottom(6)
             .build();
-        content_box.append(&system_header);
+        general_page.append(&system_header);
 
         // Autostart on login switch.
-        let autostart_switch = add_autostart_on_login_row(&content_box, config);
+        let autostart_switch = add_autostart_on_login_row(&general_page, config);
 
         // Max concurrent models spin button.
-        let max_concurrent_spin = add_max_concurrent_models_row(&content_box, config);
+        let max_concurrent_spin = add_max_concurrent_models_row(&general_page, config);
 
         // Checkpoint summarizer model dropdown.
-        let summarizer_model_combo = add_summarizer_model_row(&content_box, config);
+        let summarizer_model_combo = add_summarizer_model_row(&general_page, config);
 
         // Gateway information section (Phase 12.2).
-        add_gateway_section(&content_box, config);
+        add_gateway_section(&general_page, config);
 
-        widget.content_area().append(&content_box);
+        let general_scrolled = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .child(&general_page)
+            .build();
+
+        notebook.append_page(&general_scrolled, Some(&gtk::Label::builder().label("General").build()));
+
+        // Tab 2: Council Pipeline.
+        let council_tab_state = Arc::new(Mutex::new(CouncilTabState::new(config)));
+        let council_page = build_council_tab(config, &council_tab_state);
+        notebook.append_page(
+            &council_page,
+            Some(&gtk::Label::builder().label("Council Pipeline").build()),
+        );
+
+        widget.content_area().append(&notebook);
 
         widget.add_button("_Cancel", ResponseType::Cancel);
         widget.add_button("_Save", ResponseType::Ok);
@@ -156,6 +190,7 @@ impl PreferencesDialog {
 
         Self {
             widget,
+            notebook,
             log_dir_entry,
             proxy_port_entry,
             auto_restart_switch,
@@ -165,6 +200,7 @@ impl PreferencesDialog {
             autostart_switch,
             max_concurrent_spin,
             summarizer_model_combo,
+            council_tab_state,
         }
     }
 
@@ -205,6 +241,9 @@ impl PreferencesDialog {
         config.preferences.autostart_on_login = autostart;
         config.preferences.max_concurrent_models = max_concurrent;
         config.preferences.checkpoint_summarizer_model = summarizer_model;
+
+        // Save council pipeline config.
+        config.council = self.council_config();
 
         Config::validate(&config, config_path)
             .map_err(|e| format!("Config validation error: {}", e))?;

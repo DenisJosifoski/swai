@@ -168,8 +168,11 @@ pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, cli
         );
     }
 
-    // Forward the request to the target model server.
-    let target_url = format!("http://localhost:{}/{}", target_port, path_and_query);
+    let target_url = if path_and_query.starts_with('/') {
+        format!("http://localhost:{}{}", target_port, path_and_query)
+    } else {
+        format!("http://localhost:{}/{}", target_port, path_and_query)
+    };
     let method_str = req.method().as_str();
     let mut builder = client.request(
         method_str.parse().unwrap_or(reqwest::Method::GET),
@@ -294,13 +297,11 @@ pub fn resolve_target_port(state: &ProxyState, body: &[u8]) -> Option<u16> {
     if !has_model_key {
         return None;
     }
-    let json_val = serde_json::from_slice::<serde_json::Value>(body).ok()?;
-    let model_id = json_val.get("model").and_then(|m| m.as_str()).unwrap_or("");
-    if model_id.is_empty() {
-        return None;
-    }
+    
+    let model_id = crate::proxy::council::extract_model_from_body(body)?;
+    
     for (id, &port) in &state.active_models {
-        if id == model_id {
+        if id == &model_id {
             return Some(port);
         }
     }

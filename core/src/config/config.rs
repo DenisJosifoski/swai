@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use super::error::ConfigError;
 use super::model::ModelConfig;
 use super::preferences::{GlobalSettings, PreferencesConfig};
+use crate::council::CouncilPipelineConfig;
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct Config {
@@ -14,6 +15,8 @@ pub struct Config {
     pub global: GlobalSettings,
     #[serde(default)]
     pub preferences: PreferencesConfig,
+    #[serde(default)]
+    pub council: CouncilPipelineConfig,
 }
 
 impl Config {

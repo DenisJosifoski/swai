@@ -1,4 +1,3 @@
-use gtk::prelude::*;
 use gtk::Orientation;
 use gtk4 as gtk;
 

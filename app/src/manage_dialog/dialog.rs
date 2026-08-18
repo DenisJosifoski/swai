@@ -1,4 +1,3 @@
-use gtk::prelude::*;
 use gtk::{MessageType, ResponseType, Window};
 use gtk4 as gtk;
 

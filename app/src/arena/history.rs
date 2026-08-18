@@ -1,3 +1,4 @@
+#![allow(dead_code, unused)]
 //! SWAI — Debate transcript persistence layer.
 //!
 //! Save and load debate transcripts as JSON files from

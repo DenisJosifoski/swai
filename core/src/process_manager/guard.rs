@@ -323,3 +323,12 @@ impl ProcessGuard for LinuxProcessGuard {
         Ok(())
     }
 }
+
+#[cfg(target_os = "linux")]
+impl Drop for LinuxProcessGuard {
+    fn drop(&mut self) {
+        // Automatically terminate the process when the guard is dropped.
+        // Ignore errors during drop.
+        let _ = self.terminate(true);
+    }
+}

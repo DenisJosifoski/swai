@@ -300,10 +300,9 @@ pub fn trigger_auto_restart(
                 Err(_) => return,
             };
 
-            if pm_lock.get_primary_model_id() == Some(bg_model_id.as_str()) {
-                let _ = pm_lock.stop_model(&bg_model_id, true);
-                std::thread::sleep(std::time::Duration::from_millis(1500));
-            }
+            // Stop the model regardless of whether it's primary or secondary.
+            let _ = pm_lock.stop_model(&bg_model_id, true);
+            std::thread::sleep(std::time::Duration::from_millis(1500));
 
             pm_lock.start_model(&bg_model_id)
         };

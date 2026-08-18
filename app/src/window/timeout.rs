@@ -176,11 +176,10 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                 ChannelMessage::RestartRequested { model_id } => {
                     for c in cards_borrow.iter_mut() {
                         if c.config().id == model_id {
+                            c.set_state(CardState::Starting);
                             c.disable_restart();
-                        } else {
-                            c.set_state(CardState::Stopped);
+                            c.disable_toggle();
                         }
-                        c.enable_toggle();
                     }
                 }
                 ChannelMessage::StateUpdate { model_id, state } => {

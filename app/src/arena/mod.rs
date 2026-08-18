@@ -7,4 +7,3 @@ pub mod history;
 pub mod view;
 pub mod window;
 
-pub use window::ArenaWindow;
