@@ -107,6 +107,7 @@ pub fn process_anthropic_payload(
             //    disabled, skip writing to disk entirely.
             if checkpointing_enabled && !summary_lines.is_empty() {
                 persist_checkpoint(
+                    json_val,
                     summary_lines,
                     initial_objective.as_deref(),
                     &model_id,
@@ -179,6 +180,7 @@ fn extract_initial_objective(messages: &[serde_json::Value]) -> Option<String> {
 
 /// Persist compaction summary to disk checkpoint file with per-line deduplication.
 fn persist_checkpoint(
+    json_val: &mut serde_json::Value,
     summary_lines: Vec<String>,
     initial_objective: Option<&str>,
     model_id: &str,
@@ -243,9 +245,7 @@ fn persist_checkpoint(
         session.entries.push(entry);
     }
 
-    // NOTE: Checkpoint injection into the prompt is DISABLED.
-    // The checkpoint log is still written to disk for diagnostics, but injecting
-    // accumulated summaries back into the prompt creates a feedback loop on small
-    // context windows (64k) where noise compounds into more compaction. This will
-    // be re-enabled once dynamic model-adaptive context budgeting is fully tuned.
+    if let Some(checkpoint_text) = session.format_for_injection() {
+        crate::compaction::inject_checkpoint_into_payload(json_val, &checkpoint_text);
+    }
 }
