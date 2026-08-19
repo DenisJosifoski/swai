@@ -279,7 +279,7 @@ impl MainWindow {
                 }
                 app_wa.quit();
             });
-            wire_actions(&widget, app, on_quit, Arc::clone(&pm));
+            wire_actions(&widget, app, on_quit, Arc::clone(&pm), proxy_state.clone());
         }
 
         let (sender, receiver) = std::sync::mpsc::channel::<ChannelMessage>();

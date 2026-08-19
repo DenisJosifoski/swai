@@ -103,9 +103,9 @@ mod tests {
 
         assert!(all.contains("event: debate.started"));
         assert!(all.contains("\"model\":\"council:debate\""));
-        assert!(all.contains("event: text.delta"));
+        assert!(all.contains("event: content_block_delta"));
         assert!(all.contains("Rust is awesome"));
-        assert!(all.contains("event: debate.completed"));
+        assert!(all.contains("event: message_stop"));
     }
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
 
         assert!(all.contains("event: debate.started"));
         assert!(all.contains("Debate aborted: all models timed out"));
-        assert!(all.contains("event: debate.completed"));
+        assert!(all.contains("event: message_stop"));
     }
 
     #[test]

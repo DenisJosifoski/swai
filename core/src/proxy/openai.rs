@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 use tiny_http::{Header, Request, Response};
 
-use super::router::error_response;
 use super::state::ProxyState;
 
 /// Translate an incoming `POST /v1/responses` request body into a standard

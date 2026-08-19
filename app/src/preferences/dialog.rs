@@ -14,8 +14,9 @@ use super::council_tab::{build_council_tab, CouncilTabState};
 use super::gateway_tab::add_gateway_section;
 use super::general_tab::{
     add_auto_follow_logs_row, add_auto_restart_row, add_autostart_on_login_row,
-    add_enable_notifications_row, add_log_dir_row, add_max_concurrent_models_row,
-    add_notify_on_switch_row, add_proxy_port_row, add_summarizer_model_row,
+    add_enable_checkpointing_row, add_enable_notifications_row, add_log_dir_row,
+    add_max_concurrent_models_row, add_notify_on_switch_row, add_proxy_port_row,
+    add_summarizer_model_row,
 };
 use super::types::PreferencesValues;
 
@@ -33,6 +34,7 @@ pub struct PreferencesDialog {
     autostart_switch: SwitchRow,
     max_concurrent_spin: SpinButton,
     summarizer_model_combo: DropDown,
+    enable_checkpointing_switch: SwitchRow,
     council_tab_state: Arc<Mutex<CouncilTabState>>,
 }
 
@@ -70,6 +72,7 @@ impl PreferencesDialog {
         let autostart = self.autostart_switch.is_active();
         let max_concurrent = self.max_concurrent_spin.value() as usize;
         let summarizer_model = self.extract_summarizer_model();
+        let enable_checkpointing = self.enable_checkpointing_switch.is_active();
 
         PreferencesValues {
             log_dir,
@@ -81,6 +84,7 @@ impl PreferencesDialog {
             autostart_on_login: autostart,
             max_concurrent_models: max_concurrent,
             checkpoint_summarizer_model: summarizer_model,
+            enable_checkpointing,
         }
     }
 
@@ -158,6 +162,9 @@ impl PreferencesDialog {
         // Checkpoint summarizer model dropdown.
         let summarizer_model_combo = add_summarizer_model_row(&general_page, config);
 
+        // Enable context checkpointing switch.
+        let enable_checkpointing_switch = add_enable_checkpointing_row(&general_page, config);
+
         // Gateway information section (Phase 12.2).
         add_gateway_section(&general_page, config);
 
@@ -200,6 +207,7 @@ impl PreferencesDialog {
             autostart_switch,
             max_concurrent_spin,
             summarizer_model_combo,
+            enable_checkpointing_switch,
             council_tab_state,
         }
     }
@@ -230,6 +238,7 @@ impl PreferencesDialog {
         let autostart = self.autostart_switch.is_active();
         let max_concurrent = self.max_concurrent_spin.value() as usize;
         let summarizer_model = self.extract_summarizer_model();
+        let enable_checkpointing = self.enable_checkpointing_switch.is_active();
 
         let mut config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
         config.global.log_dir = log_dir;
@@ -241,6 +250,7 @@ impl PreferencesDialog {
         config.preferences.autostart_on_login = autostart;
         config.preferences.max_concurrent_models = max_concurrent;
         config.preferences.checkpoint_summarizer_model = summarizer_model;
+        config.preferences.enable_checkpointing = enable_checkpointing;
 
         // Save council pipeline config.
         config.council = self.council_config();

@@ -22,6 +22,9 @@ pub struct PreferencesConfig {
 
     #[serde(default)]
     pub checkpoint_summarizer_model: Option<String>,
+
+    #[serde(default = "default_enable_checkpointing")]
+    pub enable_checkpointing: bool,
 }
 
 impl Default for PreferencesConfig {
@@ -33,6 +36,7 @@ impl Default for PreferencesConfig {
             autostart_on_login: false,
             max_concurrent_models: 1,
             checkpoint_summarizer_model: None,
+            enable_checkpointing: true,
         }
     }
 }
@@ -55,6 +59,10 @@ fn default_autostart_on_login() -> bool {
 
 fn default_max_concurrent_models() -> usize {
     1
+}
+
+fn default_enable_checkpointing() -> bool {
+    true
 }
 
 /// Global settings section.

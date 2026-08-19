@@ -16,6 +16,7 @@ use crate::preferences::{PreferencesDialog, PreferencesValues};
 pub fn show_preferences_dialog(
     parent: &ApplicationWindow,
     process_manager: &Arc<Mutex<ProcessManager>>,
+    proxy_state: &Arc<Mutex<swai_core::proxy::ProxyState>>,
 ) {
     let config = match Config::load() {
         Ok(cfg) => cfg,
@@ -41,15 +42,22 @@ pub fn show_preferences_dialog(
     let pm_clone = Arc::clone(process_manager);
     let dialog_clone = dialog.clone();
 
+    let ps_clone = Arc::clone(proxy_state);
     dialog.widget.connect_response(move |d, response| {
         if response == ResponseType::Ok {
             match dialog_clone.save(&config_path) {
                 Ok(()) => {
                     tracing::info!("Preferences saved successfully");
                     if let Ok(new_cfg) = Config::load() {
+                        let enabled = new_cfg.enable_checkpointing();
                         if let Ok(mut pm) = pm_clone.lock() {
                             pm.update_config(new_cfg);
                             tracing::info!("Updated ProcessManager config in memory");
+                        }
+                        // Sync enable_checkpointing into proxy state so the
+                        // proxy thread picks up the new value immediately.
+                        if let Ok(mut ps) = ps_clone.lock() {
+                            ps.enable_checkpointing = enabled;
                         }
                     }
                 }
@@ -203,6 +211,7 @@ pub fn save_preferences(
     config.preferences.notify_on_switch = values.notify_on_switch;
     config.preferences.autostart_on_login = values.autostart_on_login;
     config.preferences.max_concurrent_models = values.max_concurrent_models;
+    config.preferences.enable_checkpointing = values.enable_checkpointing;
 
     Config::validate(&config, config_path)
         .map_err(|e| format!("Config validation error: {}", e))?;

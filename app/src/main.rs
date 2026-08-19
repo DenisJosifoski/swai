@@ -189,7 +189,11 @@ auto_restart_on_context_full = true
             }
         };
 
-        let proxy_state = swai_core::proxy::ProxyState::new();
+        let mut proxy_state = swai_core::proxy::ProxyState::new();
+        // Sync the enable-checkpointing preference from config into proxy state
+        // so the proxy thread can read it on every request without touching the
+        // config file directly.
+        proxy_state.enable_checkpointing = config.enable_checkpointing();
         let proxy_state = Arc::new(std::sync::Mutex::new(proxy_state));
 
         let proxy_server =

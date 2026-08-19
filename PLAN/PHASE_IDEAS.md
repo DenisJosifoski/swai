@@ -191,3 +191,20 @@ Context checkpointing (saving a milestone ledger of the agent's progress to prev
    - If `enable_checkpointing == false`, bypass this interception completely, significantly speeding up the proxy pipeline and saving the CPU Scribe workload.
 3. **Loop Breaker Disabling**:
    - Tie the Loop Breaker heuristic logic to this toggle. If disabled, the proxy acts as a pure passthrough router without any loop intervention.
+
+---
+
+## 💬 Live Council Debate Stream
+
+### Problem:
+The Council Pipeline successfully saves Markdown transcripts to the disk after the debate finishes, but users have no visibility into the debate *while it is happening*. For long, multi-stage generation and auditing cycles, the user just waits blankly until the final text streams to their client.
+
+### Proposed Solution:
+1. **Live Debate Chat UI (`app/src/arena/`)**:
+   - Create a real-time UI component (the "Debate Arena") in the GTK app where the user can watch the Generator draft and the Auditor critiques stream live.
+2. **Proxy State Broadcast (`core/src/proxy/`)**:
+   - Instead of isolating the `CouncilEngine` purely behind the `tiny_http` response thread, the engine can emit live progression events (e.g., `Generator started`, `Auditor 1 critiquing`) through a broadcast channel back to the UI.
+3. **Visual Feedback**:
+   - Render models as distinct "chat heads" or columns, visualizing the dialogue exactly as it occurs, similar to a group chat among AI peers.
+4. **Human-in-the-Loop Interruption**:
+   - Add an "Interrupt / Chime In" button to the Debate Arena. This allows the user to pause the pipeline, type their own critique or proposal (e.g., *"Llama makes a good point, but also make sure you use a HashMap for performance"*), and inject it as an authoritative "Human Auditor" turn before the Synthesizer finalizes the code.

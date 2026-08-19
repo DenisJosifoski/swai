@@ -203,3 +203,32 @@ pub fn add_summarizer_model_row(parent: &gtk::Box, config: &Config) -> DropDown 
     parent.append(&row);
     dropdown
 }
+
+/// Add a switch row for enabling/disabling context checkpointing.
+///
+/// When disabled, the proxy bypasses diff generation for file-write tools and
+/// skips the loop-breaker heuristic, reducing CPU overhead at the cost of
+/// losing milestone ledgers and loop detection. Recommended only for models
+/// with 128k+ context windows.
+pub fn add_enable_checkpointing_row(parent: &gtk::Box, config: &Config) -> SwitchRow {
+    let row = SwitchRow::builder()
+        .title("Enable Context Checkpointing")
+        .build();
+
+    let enabled = config.enable_checkpointing();
+    row.set_active(enabled);
+
+    // Add helper text as a subtitle on the switch row.
+    let helper = gtk::Label::builder()
+        .label("Disable milestone ledgers and loop-breaking. Recommended only for models with 128k+ context to improve latency.")
+        .use_markup(false)
+        .css_classes(vec!["dim-label"])
+        .halign(gtk::Align::Start)
+        .margin_start(16)
+        .margin_top(2)
+        .build();
+    row.add_suffix(&helper);
+
+    parent.append(&row);
+    row
+}

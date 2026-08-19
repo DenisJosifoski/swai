@@ -49,9 +49,17 @@ pub fn process_anthropic_payload(
         .unwrap_or(65_536);
     let budget = crate::compaction::ContextBudget::from_ctx_size(ctx_size);
 
-    // --- Loop Detection (Phase A) ---
-    // Record the current turn and check if the model is stuck in a planning loop.
-    let loop_directive: Option<String> =
+    // Check if checkpointing is enabled. When disabled, bypass loop detection
+    // and checkpoint persistence entirely so the proxy acts as a transparent
+    // router with zero interception overhead.
+    let checkpointing_enabled = state
+        .lock()
+        .map(|s| s.enable_checkpointing)
+        .unwrap_or(true);
+
+    let loop_directive: Option<String> = if checkpointing_enabled {
+        // --- Loop Detection (Phase A) ---
+        // Record the current turn and check if the model is stuck in a planning loop.
         if let Some(messages_arr) = json_val.get("messages").and_then(|m| m.as_array()) {
             let messages_clone = messages_arr.clone();
             SESSION_TRACKER.with(|tracker| {
@@ -61,7 +69,10 @@ pub fn process_anthropic_payload(
             })
         } else {
             None
-        };
+        }
+    } else {
+        None
+    };
     if let Some(directive) = loop_directive {
         inject_loop_directive(json_val, &directive);
     }
@@ -91,8 +102,10 @@ pub fn process_anthropic_payload(
                 obj.insert("messages".to_string(), serde_json::Value::Array(remaining));
             }
 
-            // 2. If messages were dropped, update session checkpoint with deduplication
-            if !summary_lines.is_empty() {
+            // 2. If messages were dropped and checkpointing is enabled, update
+            //    session checkpoint with deduplication. When checkpointing is
+            //    disabled, skip writing to disk entirely.
+            if checkpointing_enabled && !summary_lines.is_empty() {
                 persist_checkpoint(
                     summary_lines,
                     initial_objective.as_deref(),

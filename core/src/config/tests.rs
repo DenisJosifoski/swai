@@ -145,6 +145,7 @@ mod tests {
                 autostart_on_login: false,
                 max_concurrent_models: 2,
                 checkpoint_summarizer_model: None,
+                enable_checkpointing: true,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -202,6 +203,7 @@ auto_restart_on_context_full = true
                 autostart_on_login: false,
                 max_concurrent_models: 3,
                 checkpoint_summarizer_model: None,
+                enable_checkpointing: true,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -256,6 +258,7 @@ auto_restart_on_context_full = true
                 autostart_on_login: false,
                 max_concurrent_models: 3,
                 checkpoint_summarizer_model: None,
+                enable_checkpointing: true,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -311,6 +314,7 @@ auto_restart_on_context_full = true
                 autostart_on_login: false,
                 max_concurrent_models: 1,
                 checkpoint_summarizer_model: Some("ornith-35b".to_string()),
+                enable_checkpointing: true,
             },
             council: CouncilPipelineConfig::default(),
         };

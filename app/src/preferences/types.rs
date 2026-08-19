@@ -14,4 +14,6 @@ pub struct PreferencesValues {
     pub max_concurrent_models: usize,
     #[allow(dead_code)]
     pub checkpoint_summarizer_model: Option<String>,
+
+    pub enable_checkpointing: bool,
 }

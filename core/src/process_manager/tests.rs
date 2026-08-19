@@ -42,6 +42,7 @@ mod tests {
                 autostart_on_login: false,
                 max_concurrent_models: 4,
                 checkpoint_summarizer_model: None,
+                enable_checkpointing: true,
             },
             council: CouncilPipelineConfig::default(),
         };

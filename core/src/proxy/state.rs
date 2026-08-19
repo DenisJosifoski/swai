@@ -8,7 +8,7 @@ use std::collections::HashMap;
 ///
 /// In multi-model mode, `active_models` holds all concurrently running models;
 /// `primary_port` is the port of the first-started model (fallback target).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ProxyState {
     /// The port of the primary (first-started) active model server.
     /// `None` means no model is running.
@@ -26,6 +26,22 @@ pub struct ProxyState {
     /// When `true`, the proxy returns 503 even if ports are set, because
     /// models on those ports are not yet Ready to serve requests.
     pub is_loading: bool,
+
+    /// When `false`, bypasses diff generation for file-write tools and loop
+    /// breaker heuristic entirely. The proxy acts as a transparent router.
+    pub enable_checkpointing: bool,
+}
+
+impl Default for ProxyState {
+    fn default() -> Self {
+        Self {
+            primary_port: None,
+            active_models: HashMap::new(),
+            model_ctx_sizes: HashMap::new(),
+            is_loading: false,
+            enable_checkpointing: true,
+        }
+    }
 }
 
 impl ProxyState {
@@ -121,5 +137,6 @@ impl ProxyState {
         self.model_ctx_sizes.clear();
         self.primary_port = None;
         self.is_loading = false;
+        self.enable_checkpointing = true;
     }
 }

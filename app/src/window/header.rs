@@ -6,6 +6,7 @@ use gtk4 as gtk;
 use std::sync::{Arc, Mutex};
 
 use swai_core::process_manager::ProcessManager;
+use swai_core::proxy::ProxyState;
 
 use super::dialogs::{show_about_dialog, show_check_updates_dialog, show_preferences_dialog};
 
@@ -14,6 +15,7 @@ pub fn wire_actions(
     _app: &Application,
     on_quit: Arc<dyn Fn()>,
     process_manager: Arc<Mutex<ProcessManager>>,
+    proxy_state: Option<Arc<Mutex<ProxyState>>>,
 ) {
     let quit_action = SimpleAction::new("quit", None);
     quit_action.connect_activate(move |_, _| {
@@ -57,12 +59,15 @@ pub fn wire_actions(
     window.add_action(&github_action);
 
     let pm_prefs = Arc::clone(&process_manager);
+    let ps_prefs = proxy_state.clone();
     let preferences_action = SimpleAction::new("preferences", None);
     preferences_action.connect_activate(glib::clone!(
         #[weak]
         window,
         move |_, _| {
-            show_preferences_dialog(&window, &pm_prefs);
+            if let Some(ref ps) = ps_prefs {
+                show_preferences_dialog(&window, &pm_prefs, ps);
+            }
         }
     ));
     window.add_action(&preferences_action);

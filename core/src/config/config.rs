@@ -160,6 +160,15 @@ impl Config {
         self.preferences.checkpoint_summarizer_model.as_deref()
     }
 
+    /// Get the effective enable-checkpointing preference.
+    ///
+    /// When `true` (default), the proxy intercepts file-write tool calls to
+    /// generate diffs and injects loop-breaker directives. When `false`, the
+    /// proxy acts as a transparent router with no interception overhead.
+    pub fn enable_checkpointing(&self) -> bool {
+        self.preferences.enable_checkpointing
+    }
+
     /// Get all configured models as a list of (id, name) pairs.
     ///
     /// Used by the Preferences UI to populate dropdown selectors that let

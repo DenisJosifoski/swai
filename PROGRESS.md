@@ -1414,3 +1414,35 @@ Implemented a Unix Domain Socket IPC interface so terminal commands (`swai start
 - `cargo check --workspace`: 0 errors, 0 warnings
 - `cargo test --lib --workspace`: 207 passed in core, 33 passed in app (all 240 unit tests pass)
 
+## Phase 24_8 — Optional Checkpointing Toggle
+
+### What was built
+
+1. **Core Config Updates (`core/src/config/preferences.rs`, `config.rs`)**:
+   - Added `enable_checkpointing: bool` field to `PreferencesConfig` defaulting to `true`.
+   - Exposed `enable_checkpointing()` method on `Config`.
+
+2. **Proxy State Updates (`core/src/proxy/state.rs`)**:
+   - Added `enable_checkpointing: bool` to `ProxyState` to hold live configuration.
+   - Initialized at startup and hot-updated instantly when preferences are saved.
+
+3. **Proxy Bypass Logic (`core/src/proxy/anthropic.rs`)**:
+   - `process_anthropic_payload` respects `ProxyState.enable_checkpointing`.
+   - When disabled: Bypasses `SESSION_TRACKER` recording/checks (disabling the loop breaker entirely).
+   - When disabled: Bypasses `persist_checkpoint` disk writes.
+   - Message compaction/truncation still runs independently as needed to protect the context window.
+
+4. **UI Integration (`app/src/preferences/general_tab.rs`, `types.rs`, etc.)**:
+   - Added "Enable Context Checkpointing" `SwitchRow` to the Preferences dialog.
+   - Included descriptive subtitle targeting users with 128k+ context models.
+   - Wired live updates to immediately push state to the proxy background thread without requiring a daemon restart.
+
+### Architecture decisions
+- **Decoupled Compaction vs Checkpointing**: The toggle specifically disables the loop breaker heuristic and disk/context milestone ledgers. Essential token compaction (truncating old read results when nearing the ceiling) still runs, guaranteeing the LLM won't fatally crash due to overflowing its hard context limit even if checkpointing is off.
+- **Hot-Reloaded State**: Passed into `ProxyState` so the background `tiny_http` server thread instantly applies the toggle for the very next request without dropping active client connections.
+
+### Verification requirements met
+- ✅ Config serializes properly to `config.toml`.
+- ✅ Disabling skips loop heuristics and disk writes.
+- ✅ All touched files strictly abide by the 450-line maximum modular constraint.
+
