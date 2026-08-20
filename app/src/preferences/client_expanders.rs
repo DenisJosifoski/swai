@@ -242,7 +242,7 @@ pub fn build_claude_desktop_expander(config: &Config) -> ExpanderRow {
     // Instructions label.
     let instructions = gtk::Label::builder()
             .label(
-                &format!(
+                format!(
                     "To connect Claude Desktop:\n\
                      1. Enable Developer Mode in Claude Desktop's Help menu.\n\
                      2. Open Developer Menu → Configure Third-Party Inference → Gateway.\n\
@@ -352,7 +352,7 @@ pub fn build_codex_expander(config: &Config) -> ExpanderRow {
 
     // Instructions label.
     let instructions = gtk::Label::builder()
-        .label(&format!(
+        .label(format!(
             "Add the following to `~/.codex/config.toml`:\n\n\
                      model_provider = \"swai\"\n\n\
                      [model_providers.swai]\n\

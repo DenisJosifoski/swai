@@ -273,7 +273,7 @@ pub fn show_check_updates_dialog(parent: &ApplicationWindow) {
     check_content.set_margin_bottom(24);
 
     let info_label = gtk::Label::builder()
-        .label(&format!(
+        .label(format!(
             "You are currently running SWAI v{}.\n\n\
              Click the button below to check for updates.",
             version,
@@ -305,7 +305,7 @@ pub fn show_check_updates_dialog(parent: &ApplicationWindow) {
                     gtk::DialogFlags::MODAL,
                     gtk::MessageType::Info,
                     gtk::ButtonsType::None,
-                    &format!(
+                    format!(
                         "SWAI v{} is available!\n\n\
                          Would you like to download and install it?",
                         version,
@@ -328,7 +328,7 @@ pub fn show_check_updates_dialog(parent: &ApplicationWindow) {
                                     gtk::DialogFlags::MODAL,
                                     gtk::MessageType::Info,
                                     gtk::ButtonsType::None,
-                                    &format!(
+                                    format!(
                                         "SWAI updated to v{} successfully!\n\n\
                                          Click 'Restart Now' to apply the update.",
                                         new_version,
@@ -357,7 +357,7 @@ pub fn show_check_updates_dialog(parent: &ApplicationWindow) {
                                     gtk::DialogFlags::MODAL,
                                     gtk::MessageType::Error,
                                     gtk::ButtonsType::Close,
-                                    &format!("Update failed:\n\n{}", e),
+                                    format!("Update failed:\n\n{}", e),
                                 );
                                 err.set_title(Some("SWAI - Update Error"));
                                 err.present();
@@ -386,7 +386,7 @@ pub fn show_check_updates_dialog(parent: &ApplicationWindow) {
                     gtk::DialogFlags::MODAL,
                     gtk::MessageType::Error,
                     gtk::ButtonsType::Close,
-                    &format!("Failed to check for updates:\n\n{}", e),
+                    format!("Failed to check for updates:\n\n{}", e),
                 );
                 dlg.set_title(Some("SWAI - Update Check Failed"));
                 dlg.connect_response(|d, _| d.destroy());

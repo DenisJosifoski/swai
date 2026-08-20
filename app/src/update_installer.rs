@@ -46,11 +46,11 @@ pub fn install_update(github_repo: &str, version: &str) -> UpdateInstallResult {
 
     // Candidate asset filenames on GitHub release page
     let candidate_files = [
-        format!("swai-linux-x86_64.tar.gz"),
+        "swai-linux-x86_64.tar.gz".to_string(),
         format!("swai-{}-linux-x86_64.tar.gz", tag_name),
         format!("swai-{}-linux-x86_64.tar.gz", version),
-        format!("swai-linux-x86_64.AppImage"),
-        format!("swai"),
+        "swai-linux-x86_64.AppImage".to_string(),
+        "swai".to_string(),
     ];
 
     let mut download_response = None;
@@ -193,8 +193,7 @@ fn extract_tarball(tarball_path: &std::path::Path, dest_dir: &std::path::Path) -
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("tar extraction failed with status {}", status),
         ));
     }

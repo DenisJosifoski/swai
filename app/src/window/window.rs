@@ -399,7 +399,7 @@ impl MainWindow {
 
         *tray_handle_for_struct.borrow_mut() = tray_handle;
 
-        if let (Some(ref banner), Some(port), Some(name)) =
+        if let (Some(banner), Some(port), Some(name)) =
             (unmanaged_banner.as_ref(), adopt_port, adopt_model_name)
         {
             let parent = widget.clone();

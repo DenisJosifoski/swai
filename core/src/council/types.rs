@@ -6,8 +6,10 @@ use std::time::Duration;
 
 /// Execution mode for a council pipeline.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum CouncilMode {
     /// Stages run sequentially, one after another.
+    #[default]
     Sequential,
     /// All stages with the same role run concurrently.
     Concurrent,
@@ -15,11 +17,6 @@ pub enum CouncilMode {
     Auto,
 }
 
-impl Default for CouncilMode {
-    fn default() -> Self {
-        Self::Sequential
-    }
-}
 
 /// Role a council agent plays in a pipeline stage.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,8 +61,10 @@ fn default_top_p() -> f32 {
 
 /// Fallback behavior when a stage fails.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum FallbackAction {
     /// Skip the failing stage and continue with the next.
+    #[default]
     Skip,
     /// Retry the stage up to `max_retries` times.
     Retry { max_retries: u32 },
@@ -73,14 +72,10 @@ pub enum FallbackAction {
     Abort,
 }
 
-impl Default for FallbackAction {
-    fn default() -> Self {
-        Self::Skip
-    }
-}
 
 /// Complete council pipeline configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct CouncilPipelineConfig {
     /// Ordered list of stages to execute.
     pub stages: Vec<PipelineStage>,
@@ -95,16 +90,6 @@ pub struct CouncilPipelineConfig {
     pub role_overrides: HashMap<String, String>,
 }
 
-impl Default for CouncilPipelineConfig {
-    fn default() -> Self {
-        Self {
-            stages: Vec::new(),
-            mode: CouncilMode::default(),
-            fallback: FallbackAction::default(),
-            role_overrides: HashMap::new(),
-        }
-    }
-}
 
 /// Result of a single council turn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

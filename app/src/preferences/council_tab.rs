@@ -121,7 +121,7 @@ fn add_mode_row(parent: &PreferencesGroup, state: &Arc<Mutex<CouncilTabState>>) 
     row.add_prefix(&dd);
     parent.add(&row);
     let sc = state.clone();
-    dd.connect_notify(Some("selected".into()), move |dd, _| {
+    dd.connect_notify(Some("selected"), move |dd, _| {
         let m = match dd.selected() {
             0 => CouncilMode::Auto,
             1 => CouncilMode::Concurrent,
@@ -206,7 +206,7 @@ fn add_stage_row(
 
     // Wire callbacks.
     let stg = stage.clone();
-    rdd.connect_notify(Some("selected".into()), move |dd, _| {
+    rdd.connect_notify(Some("selected"), move |dd, _| {
         let role = match dd.selected() as usize {
             0 => CouncilRole::Generator,
             1 => CouncilRole::Auditor,
@@ -218,7 +218,7 @@ fn add_stage_row(
 
     let stg = stage.clone();
     let mids_c = mids.clone();
-    mdd.connect_notify(Some("selected".into()), move |dd, _| {
+    mdd.connect_notify(Some("selected"), move |dd, _| {
         let mid = mids_c[dd.selected() as usize].clone();
         stg.lock().unwrap().model_id = mid;
     });

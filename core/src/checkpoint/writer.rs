@@ -96,8 +96,7 @@ impl CheckpointWriter {
         objective: Option<&str>,
     ) -> std::io::Result<()> {
         let _lock = self.state.lock().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
+            std::io::Error::other(
                 format!("checkpoint writer lock poisoned: {}", e),
             )
         })?;

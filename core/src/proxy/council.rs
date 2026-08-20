@@ -146,7 +146,6 @@ pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<
         DebateOutcome::Success { final_response, .. } => final_response.clone(),
         DebateOutcome::Partial {
             fallback_response,
-            warnings: _,
             ..
         } => {
             format!("Debate partial: {}", fallback_response)

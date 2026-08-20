@@ -77,6 +77,11 @@ pub fn process_anthropic_payload(
         inject_loop_directive(json_val, &directive);
     }
 
+    // If checkpointing is disabled, we skip compaction entirely to act as a transparent router.
+    if !checkpointing_enabled {
+        return;
+    }
+
     // --- Compaction (Phase B+C) ---
     // Use dynamic trigger threshold from the model's context budget
     let trigger_threshold = budget.compaction_trigger_chars * 90 / 100;

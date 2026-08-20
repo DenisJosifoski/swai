@@ -209,9 +209,7 @@ impl ProcessManager {
     /// then starts the new model. If any step fails, affected state is cleaned up.
     pub fn switch_model(&mut self, from_id: &str, to_id: &str) -> Result<(), ProcessError> {
         // Step 1: stop the current model
-        if let Err(e) = self.stop_model(from_id, false) {
-            return Err(e);
-        }
+        self.stop_model(from_id, false)?;
 
         // Step 2: short delay for CUDA context release
         std::thread::sleep(Duration::from_millis(500));

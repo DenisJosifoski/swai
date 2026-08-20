@@ -109,7 +109,7 @@ pub fn format_sse_event(event: &CouncilStreamEvent, sequence: u64) -> String {
     }
 
     // End the SSE event with double newline per SSE spec.
-    sse.push_str("\n");
+    sse.push('\n');
     sse
 }
 
