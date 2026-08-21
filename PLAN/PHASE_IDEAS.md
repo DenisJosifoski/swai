@@ -208,3 +208,22 @@ The Council Pipeline successfully saves Markdown transcripts to the disk after t
    - Render models as distinct "chat heads" or columns, visualizing the dialogue exactly as it occurs, similar to a group chat among AI peers.
 4. **Human-in-the-Loop Interruption**:
    - Add an "Interrupt / Chime In" button to the Debate Arena. This allows the user to pause the pipeline, type their own critique or proposal (e.g., *"Llama makes a good point, but also make sure you use a HashMap for performance"*), and inject it as an authoritative "Human Auditor" turn before the Synthesizer finalizes the code.
+
+---
+
+## ⚖️ Council Pipeline Master Toggle (Preferences / Bypass)
+
+### Problem:
+Users frequently run multiple concurrent models in SWAI (e.g., `max_concurrent_models = 2+`) for independent multi-client setups—such as running Claude Code on Model A while simultaneously running Cursor or another tool on Model B. Currently, running multiple models can imply Council debate arbitration, even when the user only wants concurrent independent routing without any synthetic multi-agent debate overhead.
+
+### Proposed Architecture & Solution:
+1. **Master Council Switch in Preferences (`app/src/preferences/`)**:
+   - Add a global `Enable Council Pipeline` toggle switch inside the **Council Pipeline** preferences tab.
+   - Backed by `enable_council = true/false` in `[council]` or `[preferences]` section of `config.toml`.
+2. **Proxy Bypass & Transparent Multi-Model Routing (`core/src/proxy/`)**:
+   - When `enable_council == false`:
+     - Bypasses any synthetic Council interception (`swai-council` endpoint or `x-swai-pipeline` headers).
+     - Directly routes incoming requests to the target model specified in the request payload (`model: "<model-id>"`).
+     - Allows pure, concurrent multi-model operation without triggering auditor critiques or synthesizer rounds.
+3. **UI Visual State**:
+   - When the toggle is OFF, dim or disable the Council-specific configuration rows in the Preferences dialog to make it obvious that the debate pipeline is dormant.

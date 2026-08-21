@@ -151,10 +151,29 @@ pub fn compact_messages_with_budget(
         false
     };
 
-    // Helper: checks if a unit contains an edited file or critical plan file
+    // Helper: checks if a message contains substantive assistant discussion (>300 chars)
+    let is_substantive_discussion_msg = |m: &Value| -> bool {
+        if m.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            return false;
+        }
+        if let Some(arr) = m.get("content").and_then(|c| c.as_array()) {
+            for block in arr {
+                if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                        if text.trim().len() > 300 {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    };
+
+    // Helper: checks if a unit contains an edited file, critical plan file, or substantive discussion
     let is_critical_unit = |unit: &(usize, usize)| -> bool {
         for idx in unit.0..=unit.1 {
-            if is_edited_file_msg(&messages[idx]) || is_plan_file_msg(&messages[idx]) {
+            if is_edited_file_msg(&messages[idx]) || is_plan_file_msg(&messages[idx]) || is_substantive_discussion_msg(&messages[idx]) {
                 return true;
             }
         }

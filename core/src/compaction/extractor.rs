@@ -177,7 +177,15 @@ pub fn extract_action_lines(messages: &[Value]) -> Vec<String> {
                             }
                         }
                     } else if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                        // Skip generic assistant chatter; only track meaningful tool actions
+                        if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
+                            let trimmed = text.trim();
+                            if !trimmed.is_empty() {
+                                let mut chars = trimmed.chars();
+                                let truncated: String = chars.by_ref().take(200).collect();
+                                let suffix = if chars.next().is_some() { "..." } else { "" };
+                                lines.push(format!("Assistant thought: {}{}", truncated, suffix));
+                            }
+                        }
                     }
                 }
                 // If the assistant had tool_use but no text, add a generic line.
