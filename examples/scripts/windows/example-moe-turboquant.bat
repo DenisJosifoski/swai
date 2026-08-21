@@ -59,6 +59,11 @@ if not defined PARALLEL_SLOTS set PARALLEL_SLOTS=1
   --cache-type-k turbo3 ^
   --cache-type-v turbo3 ^
   ^
+  :: --- Prompt Caching & Continuous Batching --- ^
+  :: Drastically reduces TTFT for agentic tools (Claude Code, Hermes, etc.) ^
+  --cache-reuse 256 ^
+  --cont-batching ^
+  ^
   :: --- Inference Parameters --- ^
   --temp 0.6 ^
   --top-p 0.95 ^

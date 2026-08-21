@@ -1,6 +1,6 @@
 #![allow(dead_code, unused)]
 use gtk::prelude::*;
-use gtk::{DropDown, Notebook, Orientation, ResponseType, SpinButton, Window};
+use gtk::{DropDown, Orientation, ResponseType, SpinButton, Window};
 use gtk4 as gtk;
 
 use adw::{EntryRow, SwitchRow};
@@ -10,21 +10,19 @@ use swai_core::config::Config;
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 
+use super::checkpoint_tab::{build_checkpoint_tab, CheckpointWidgets};
 use super::council_tab::{build_council_tab, CouncilTabState};
-use super::gateway_tab::add_gateway_section;
-use super::general_tab::{
-    add_auto_follow_logs_row, add_auto_restart_row, add_autostart_on_login_row,
-    add_enable_checkpointing_row, add_enable_notifications_row, add_log_dir_row,
-    add_max_concurrent_models_row, add_notify_on_switch_row, add_proxy_port_row,
-    add_summarizer_model_row,
-};
+use super::general_tab::{build_general_tab, GeneralWidgets};
+use super::gateway_tab::{build_gateway_tab, GatewayWidgets};
+use super::guides_tab::{build_guides_tab, GuidesWidgets};
+use super::notifications_tab::{build_notifications_tab, NotificationsWidgets};
+use super::proxy_tab::{build_proxy_tab, ProxyWidgets};
 use super::types::PreferencesValues;
 
-/// A modal dialog for editing global configuration.
+/// A modal dialog for editing global configuration with sidebar navigation.
 #[derive(Clone)]
 pub struct PreferencesDialog {
     pub widget: gtk::Dialog,
-    notebook: Notebook,
     log_dir_entry: EntryRow,
     proxy_port_entry: EntryRow,
     auto_restart_switch: SwitchRow,
@@ -99,92 +97,61 @@ impl PreferencesDialog {
             .title("Preferences")
             .transient_for(parent)
             .modal(true)
+            .default_width(780)
+            .default_height(560)
             .build();
 
-        // Use a notebook for tabbed interface.
-        let notebook = Notebook::new();
-        notebook.set_margin_start(12);
-        notebook.set_margin_end(12);
-        notebook.set_margin_top(12);
-        notebook.set_margin_bottom(12);
+        // Build sidebar with gtk::Stack and gtk::StackSidebar
+        let stack = gtk::Stack::new();
+        stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+        stack.set_transition_duration(150);
+        stack.set_hexpand(true);
+        stack.set_vexpand(true);
 
-        // Tab 1: General settings.
-        let general_page = gtk::Box::new(Orientation::Vertical, 12);
-        general_page.set_margin_start(24);
-        general_page.set_margin_end(24);
-        general_page.set_margin_top(24);
-        general_page.set_margin_bottom(24);
+        let sidebar = gtk::StackSidebar::new();
+        sidebar.set_stack(&stack);
+        sidebar.set_size_request(190, -1);
 
-        // Log directory row.
-        let log_dir_entry = add_log_dir_row(&general_page, parent, config);
+        let separator = gtk::Separator::new(Orientation::Vertical);
 
-        // Proxy port row.
-        let proxy_port_entry = add_proxy_port_row(&general_page, config);
+        // Build all preference pages and add to stack
+        let (general_page, general_widgets) = build_general_tab(config);
+        let (gateway_page, gateway_widgets) = build_gateway_tab(config);
+        let (proxy_page, proxy_widgets) = build_proxy_tab(config);
+        let (checkpoint_page, checkpoint_widgets) = build_checkpoint_tab(config);
+        let (notifications_page, notifications_widgets) = build_notifications_tab(config);
 
-        // Auto-restart row.
-        let auto_restart_switch = add_auto_restart_row(&general_page, config);
-
-        // Auto-follow logs row.
-        let auto_follow_switch = add_auto_follow_logs_row(&general_page, config);
-
-        // Notification settings section header.
-        let notif_header = gtk::Label::builder()
-            .label("<b>Notifications</b>")
-            .use_markup(true)
-            .halign(gtk::Align::Start)
-            .margin_top(18)
-            .margin_bottom(6)
-            .build();
-        general_page.append(&notif_header);
-
-        // Enable notifications switch.
-        let enable_notifications_switch = add_enable_notifications_row(&general_page, config);
-
-        // Notify on switch switch.
-        let notify_on_switch_switch = add_notify_on_switch_row(&general_page, config);
-
-        // System section header.
-        let system_header = gtk::Label::builder()
-            .label("<b>System</b>")
-            .use_markup(true)
-            .halign(gtk::Align::Start)
-            .margin_top(18)
-            .margin_bottom(6)
-            .build();
-        general_page.append(&system_header);
-
-        // Autostart on login switch.
-        let autostart_switch = add_autostart_on_login_row(&general_page, config);
-
-        // Max concurrent models spin button.
-        let max_concurrent_spin = add_max_concurrent_models_row(&general_page, config);
-
-        // Checkpoint summarizer model dropdown.
-        let summarizer_model_combo = add_summarizer_model_row(&general_page, config);
-
-        // Enable context checkpointing switch.
-        let enable_checkpointing_switch = add_enable_checkpointing_row(&general_page, config);
-
-        // Gateway information section (Phase 12.2).
-        add_gateway_section(&general_page, config);
-
-        let general_scrolled = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vscrollbar_policy(gtk::PolicyType::Automatic)
-            .child(&general_page)
-            .build();
-
-        notebook.append_page(&general_scrolled, Some(&gtk::Label::builder().label("General").build()));
-
-        // Tab 2: Council Pipeline.
         let council_tab_state = Arc::new(Mutex::new(CouncilTabState::new(config)));
         let council_page = build_council_tab(config, &council_tab_state);
-        notebook.append_page(
-            &council_page,
-            Some(&gtk::Label::builder().label("Council Pipeline").build()),
-        );
 
-        widget.content_area().append(&notebook);
+        let (guides_page, _) = build_guides_tab(config);
+
+        // Add pages to stack with titles
+        stack.add_titled(&general_page, Some("general"), "General");
+        stack.add_titled(&gateway_page, Some("gateway"), "Gateway");
+        stack.add_titled(&proxy_page, Some("proxy"), "Proxy");
+        stack.add_titled(&checkpoint_page, Some("checkpoint"), "Checkpointing");
+        stack.add_titled(&notifications_page, Some("notifications"), "Notifications");
+        stack.add_titled(&council_page, Some("council"), "Council Pipeline");
+        stack.add_titled(&guides_page, Some("guides"), "Guides");
+
+        let scrolled_stack = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .child(&stack)
+            .hexpand(true)
+            .vexpand(true)
+            .build();
+
+        // Layout: sidebar on left, separator in middle, scrollable stack on right
+        let main_box = gtk::Box::new(Orientation::Horizontal, 0);
+        main_box.set_hexpand(true);
+        main_box.set_vexpand(true);
+        main_box.append(&sidebar);
+        main_box.append(&separator);
+        main_box.append(&scrolled_stack);
+
+        widget.content_area().append(&main_box);
 
         widget.add_button("_Cancel", ResponseType::Cancel);
         widget.add_button("_Save", ResponseType::Ok);
@@ -195,19 +162,19 @@ impl PreferencesDialog {
             glib::Propagation::Proceed
         });
 
+        // Extract real widget handles from the tab builders
         Self {
             widget,
-            notebook,
-            log_dir_entry,
-            proxy_port_entry,
-            auto_restart_switch,
-            auto_follow_switch,
-            enable_notifications_switch,
-            notify_on_switch_switch,
-            autostart_switch,
-            max_concurrent_spin,
-            summarizer_model_combo,
-            enable_checkpointing_switch,
+            log_dir_entry: general_widgets.log_dir_entry,
+            proxy_port_entry: gateway_widgets.proxy_port_entry,
+            auto_restart_switch: proxy_widgets.auto_restart_switch,
+            auto_follow_switch: notifications_widgets.auto_follow_switch,
+            enable_notifications_switch: notifications_widgets.enable_notifications_switch,
+            notify_on_switch_switch: notifications_widgets.notify_on_switch_switch,
+            autostart_switch: general_widgets.autostart_switch,
+            max_concurrent_spin: general_widgets.max_concurrent_spin,
+            summarizer_model_combo: checkpoint_widgets.summarizer_model_combo,
+            enable_checkpointing_switch: checkpoint_widgets.enable_checkpointing_switch,
             council_tab_state,
         }
     }

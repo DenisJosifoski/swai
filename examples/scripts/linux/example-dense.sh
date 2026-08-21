@@ -46,6 +46,11 @@ exec "$LLAMA_SERVER" \
   --cache-type-k turbo4 \
   --cache-type-v turbo4 \
   \
+  `# --- Prompt Caching & Continuous Batching ---` \
+  `# Drastically reduces TTFT for agentic tools (Claude Code, Hermes, etc.)` \
+  --cache-reuse 256 \
+  --cont-batching \
+  \
   `# --- Inference Parameters ---` \
   --temp 0.8 \
   --top-p 0.90 \

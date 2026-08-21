@@ -1,44 +1,83 @@
-use gtk::{DropDown, FileChooserAction, ResponseType, SpinButton, StringList, Window};
+//! SWAI — General Preferences Tab.
+//!
+//! Core application settings: log directory, autostart, max concurrent models, and storage maintenance.
+
+use gtk::{FileChooserAction, ResponseType, SpinButton};
 use gtk4 as gtk;
 
 use adw::prelude::*;
-use adw::{ActionRow, EntryRow, SwitchRow};
+use adw::{ActionRow, EntryRow, PreferencesGroup, PreferencesPage, SwitchRow};
 
 use std::path::PathBuf;
 use swai_core::config::Config;
 
-pub fn add_log_dir_row(
-    parent: &impl IsA<gtk::Box>,
-    dialog_parent: &impl IsA<gtk::Window>,
-    config: &Config,
-) -> EntryRow {
+/// Widget handles for the General tab.
+pub struct GeneralWidgets {
+    pub log_dir_entry: EntryRow,
+    pub autostart_switch: SwitchRow,
+    pub max_concurrent_spin: SpinButton,
+}
+
+/// Build the General preferences page.
+pub fn build_general_tab(config: &Config) -> (PreferencesPage, GeneralWidgets) {
+    let page = PreferencesPage::new();
+    page.set_title("General");
+
+    let group = PreferencesGroup::new();
+    group.set_title("Application Settings");
+
+    let log_dir_entry = add_log_dir_row(&group, config);
+    let autostart_switch = add_autostart_on_login_row(&group, config);
+    let max_concurrent_spin = add_max_concurrent_models_row(&group, config);
+
+    page.add(&group);
+
+    // Storage maintenance section.
+    let storage_group = PreferencesGroup::new();
+    storage_group.set_title("Storage Maintenance");
+    storage_group.set_description(Some("One-click storage cleanup for application data"));
+
+    let _clear_logs_btn = add_clear_logs_button(&storage_group);
+    let _clear_checkpoints_btn = add_clear_checkpoints_button(&storage_group);
+
+    page.add(&storage_group);
+
+    let widgets = GeneralWidgets {
+        log_dir_entry,
+        autostart_switch,
+        max_concurrent_spin,
+    };
+
+    (page, widgets)
+}
+
+/// Add a log directory entry row with Browse button.
+pub fn add_log_dir_row(parent: &PreferencesGroup, config: &Config) -> EntryRow {
     let row = EntryRow::builder().title("Log directory").build();
 
     let current_path = config.log_dir();
     row.set_text(current_path.to_string_lossy().as_ref());
 
-    // Add a Browse button to the end of the row.
     let entry_clone = row.clone();
-    let dialog_parent_clone = dialog_parent.clone();
     let browse_btn = gtk::Button::builder()
         .label("Browse…")
         .css_classes(vec!["flat"])
+        .valign(gtk::Align::Center)
         .build();
     browse_btn.connect_clicked(move |_| {
-        show_folder_chooser(&entry_clone, &dialog_parent_clone);
+        show_folder_chooser(&entry_clone);
     });
     row.add_suffix(&browse_btn);
 
-    // Append the completed row to the dialog's content box.
-    parent.as_ref().append(&row);
+    parent.add(&row);
     row
 }
 
 /// Show a folder chooser dialog using the async run_async pattern.
-fn show_folder_chooser<T: IsA<Window>>(entry: &EntryRow, parent: &T) {
+fn show_folder_chooser(entry: &EntryRow) {
     let chooser = gtk::FileChooserDialog::new(
         Some("Select Log Directory"),
-        Some(parent),
+        None::<&gtk::Window>,
         FileChooserAction::SelectFolder,
         &[
             ("_Cancel", ResponseType::Cancel),
@@ -63,172 +102,146 @@ fn show_folder_chooser<T: IsA<Window>>(entry: &EntryRow, parent: &T) {
     });
 }
 
-pub fn add_proxy_port_row(parent: &gtk::Box, config: &Config) -> EntryRow {
-    let row = EntryRow::builder().title("Proxy port").build();
-
-    let proxy_port = config.proxy_port();
-    row.set_text(&proxy_port.to_string());
-
-    parent.append(&row);
-    row
-}
-
-pub fn add_auto_restart_row(parent: &gtk::Box, config: &Config) -> SwitchRow {
-    let row = SwitchRow::builder()
-        .title("Auto-restart on context full")
-        .build();
-
-    let auto_restart = config.auto_restart_on_context_full();
-    row.set_active(auto_restart);
-
-    parent.append(&row);
-    row
-}
-
-pub fn add_auto_follow_logs_row(parent: &gtk::Box, config: &Config) -> SwitchRow {
-    let row = SwitchRow::builder()
-        .title("Auto-follow active model in logs")
-        .build();
-
-    let auto_follow = config.auto_follow_logs();
-    row.set_active(auto_follow);
-
-    parent.append(&row);
-    row
-}
-
-pub fn add_enable_notifications_row(parent: &gtk::Box, config: &Config) -> SwitchRow {
-    let row = SwitchRow::builder()
-        .title("Enable desktop notifications")
-        .build();
-
-    let enable = config.enable_notifications();
-    row.set_active(enable);
-
-    parent.append(&row);
-    row
-}
-
-pub fn add_notify_on_switch_row(parent: &gtk::Box, config: &Config) -> SwitchRow {
-    let row = SwitchRow::builder().title("Notify on model switch").build();
-
-    let notify = config.notify_on_switch();
-    row.set_active(notify);
-
-    parent.append(&row);
-    row
-}
-
-pub fn add_autostart_on_login_row(parent: &gtk::Box, config: &Config) -> SwitchRow {
+/// Add a switch row for autostart on login.
+pub fn add_autostart_on_login_row(parent: &PreferencesGroup, config: &Config) -> SwitchRow {
     let row = SwitchRow::builder()
         .title("Start SWAI automatically on login")
+        .subtitle("Launch the SWAI tray and proxy daemon on system boot")
         .build();
 
     let autostart = config.autostart_on_login();
     row.set_active(autostart);
 
-    parent.append(&row);
+    parent.add(&row);
     row
 }
 
-/// Add a spin button for configuring the maximum number of concurrent
-/// model servers (1–4). Placed in the System section of the preferences.
-pub fn add_max_concurrent_models_row(parent: &gtk::Box, config: &Config) -> SpinButton {
+/// Add a spin button for configuring the maximum number of concurrent model servers (1–4).
+pub fn add_max_concurrent_models_row(parent: &PreferencesGroup, config: &Config) -> SpinButton {
     let current = config.max_concurrent_models().clamp(1, 4) as f64;
 
-    let adj = gtk::Adjustment::new(
-        current, // value
-        1.0,     // lower bound
-        4.0,     // upper bound
-        1.0,     // step increment
-        1.0,     // page increment
-        0.0,     // page size
-    );
+    let adj = gtk::Adjustment::new(current, 1.0, 4.0, 1.0, 1.0, 0.0);
 
     let spin = SpinButton::new(Some(&adj), 0.0, 0);
     spin.set_snap_to_ticks(true);
+    spin.set_valign(gtk::Align::Center);
 
-    // Wrap in an ActionRow for consistent styling with the rest of the dialog.
     let row = ActionRow::builder()
         .title("Max concurrent models")
         .subtitle("Number of model servers allowed to run simultaneously (1–4)")
         .build();
-    row.add_prefix(&spin);
+    row.add_suffix(&spin);
 
-    parent.append(&row);
+    parent.add(&row);
     spin
 }
 
-/// Add a dropdown row for selecting the checkpoint summarizer model.
-///
-/// Options include "Same as active model (Default)" plus each configured
-/// model's display name. The selected value is stored as either `None`
-/// (default) or the model's configured id.
-pub fn add_summarizer_model_row(parent: &gtk::Box, config: &Config) -> DropDown {
-    // Build the dropdown options: "Same as active model (Default)" first,
-    // then each configured model's name. We track the mapping from display
-    // text → model id (or None for the default option) separately.
-    let mut display_names: Vec<&str> = vec!["Same as active model (Default)"];
-    let mut model_ids: Vec<Option<String>> = vec![None];
-
-    for (id, name) in config.configured_models() {
-        display_names.push(name);
-        model_ids.push(Some(id.to_string()));
-    }
-
-    // StringList::new expects &[&str].
-    let string_list = StringList::new(&display_names);
-
-    let dropdown = DropDown::new(Some(string_list), None::<gtk::Expression>);
-
-    // Set the initial selection based on current config.
-    if let Some(ref preferred) = config.preferences.checkpoint_summarizer_model {
-        for (i, opt_id) in model_ids.iter().enumerate() {
-            if let Some(ref id) = opt_id {
-                if id == preferred {
-                    dropdown.set_selected(i as u32);
-                    break;
-                }
-            }
-        }
-    }
-
-    // Wrap in an ActionRow for consistent styling with the rest of the dialog.
+/// Add a "Clear All Logs" button with confirmation dialog.
+pub fn add_clear_logs_button(parent: &PreferencesGroup) -> ActionRow {
     let row = ActionRow::builder()
-            .title("Checkpoint Summarizer Model")
-            .subtitle("Model used to summarize evicted conversation history. Leaving it on the active model means summarization shares context; selecting a secondary model offloads summarization to keep the primary model's context free.")
-            .build();
-    row.add_prefix(&dropdown);
+        .title("Clear Application Logs")
+        .subtitle("Delete all log files in the configured log directory")
+        .build();
 
-    parent.append(&row);
-    dropdown
+    let btn = gtk::Button::builder()
+        .label("Clear Logs")
+        .css_classes(vec!["destructive-action"])
+        .valign(gtk::Align::Center)
+        .build();
+
+    btn.connect_clicked(move |_| {
+        show_confirmation_dialog(
+            "Clear All Logs",
+            "This will delete all files in the log directory. This action cannot be undone.",
+            "Clear Logs",
+            || {
+                if let Ok(config) = Config::load() {
+                    let log_dir = config.log_dir();
+                    if log_dir.exists() {
+                        if let Ok(entries) = std::fs::read_dir(&log_dir) {
+                            for entry in entries.flatten() {
+                                let _ = std::fs::remove_file(entry.path());
+                            }
+                            tracing::info!("Cleared all log files in {:?}", log_dir);
+                        }
+                    }
+                }
+            },
+        );
+    });
+
+    row.add_suffix(&btn);
+    parent.add(&row);
+    row
 }
 
-/// Add a switch row for enabling/disabling context checkpointing.
-///
-/// When disabled, the proxy bypasses diff generation for file-write tools and
-/// skips the loop-breaker heuristic, reducing CPU overhead at the cost of
-/// losing milestone ledgers and loop detection. Recommended only for models
-/// with 128k+ context windows.
-pub fn add_enable_checkpointing_row(parent: &gtk::Box, config: &Config) -> SwitchRow {
-    let row = SwitchRow::builder()
-        .title("Enable Context Checkpointing")
+/// Add a "Clear All Checkpoints" button with confirmation dialog.
+pub fn add_clear_checkpoints_button(parent: &PreferencesGroup) -> ActionRow {
+    let row = ActionRow::builder()
+        .title("Clear Context Checkpoints")
+        .subtitle("Delete all saved conversation checkpoint ledgers")
         .build();
 
-    let enabled = config.enable_checkpointing();
-    row.set_active(enabled);
-
-    // Add helper text as a subtitle on the switch row.
-    let helper = gtk::Label::builder()
-        .label("Disable milestone ledgers and loop-breaking. Recommended only for models with 128k+ context to improve latency.")
-        .use_markup(false)
-        .css_classes(vec!["dim-label"])
-        .halign(gtk::Align::Start)
-        .margin_start(16)
-        .margin_top(2)
+    let btn = gtk::Button::builder()
+        .label("Clear Checkpoints")
+        .css_classes(vec!["destructive-action"])
+        .valign(gtk::Align::Center)
         .build();
-    row.add_suffix(&helper);
 
-    parent.append(&row);
+    btn.connect_clicked(move |_| {
+        show_confirmation_dialog(
+            "Clear All Checkpoints",
+            "This will delete all checkpoint session files in ~/.local/share/swai/checkpoints/. This action cannot be undone.",
+            "Clear Checkpoints",
+            || {
+                if let Ok(home) = std::env::var("HOME") {
+                    let checkpoint_dir = PathBuf::from(home)
+                        .join(".local")
+                        .join("share")
+                        .join("swai")
+                        .join("checkpoints");
+                    if checkpoint_dir.exists() {
+                        if let Ok(entries) = std::fs::read_dir(&checkpoint_dir) {
+                            for entry in entries.flatten() {
+                                let _ = std::fs::remove_file(entry.path());
+                            }
+                            tracing::info!("Cleared all checkpoint files in {:?}", checkpoint_dir);
+                        }
+                    }
+                }
+            },
+        );
+    });
+
+    row.add_suffix(&btn);
+    parent.add(&row);
     row
+}
+
+/// Show a confirmation dialog.
+fn show_confirmation_dialog(
+    title: &str,
+    message: &str,
+    confirm_label: &str,
+    on_confirm: impl FnOnce() + 'static,
+) {
+    let dialog = adw::MessageDialog::builder()
+        .heading(title)
+        .body(message)
+        .build();
+
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("confirm", confirm_label);
+    dialog.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
+
+    let on_confirm = std::sync::Arc::new(std::sync::Mutex::new(Some(on_confirm)));
+    dialog.connect_response(None, move |_dialog, response| {
+        if response == "confirm" {
+            if let Some(callback) = on_confirm.lock().unwrap().take() {
+                callback();
+            }
+        }
+    });
+
+    dialog.present();
 }

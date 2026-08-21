@@ -25,7 +25,12 @@ pub struct CouncilTabState {
 impl CouncilTabState {
     pub fn new(config: &Config) -> Self {
         Self {
-            stages: config.council.stages.iter().map(|s| Arc::new(Mutex::new(s.clone()))).collect(),
+            stages: config
+                .council
+                .stages
+                .iter()
+                .map(|s| Arc::new(Mutex::new(s.clone())))
+                .collect(),
             mode: config.council.mode.clone(),
         }
     }
@@ -33,7 +38,11 @@ impl CouncilTabState {
     /// Build a `CouncilPipelineConfig` from the current in-memory state.
     pub fn to_config(&self) -> CouncilPipelineConfig {
         CouncilPipelineConfig {
-            stages: self.stages.iter().map(|s| s.lock().unwrap().clone()).collect(),
+            stages: self
+                .stages
+                .iter()
+                .map(|s| s.lock().unwrap().clone())
+                .collect(),
             mode: self.mode.clone(),
             fallback: swai_core::council::FallbackAction::default(),
             role_overrides: std::collections::HashMap::new(),
@@ -191,7 +200,7 @@ fn add_stage_row(
     // Prompt template.
     let pe = EntryRow::builder().title("Prompt Template").build();
     pe.set_text(&stage_lock.prompt_template);
-    
+
     drop(stage_lock);
 
     // Remove button.
@@ -250,8 +259,22 @@ mod tests {
     fn test_council_config_round_trip() {
         let orig = CouncilPipelineConfig {
             stages: vec![
-                PipelineStage { model_id: "llama3-8b".into(), role: CouncilRole::Generator, prompt_template: "Answer: {input}".into(), temperature: 0.7, top_p: 0.9, system_prompt: None },
-                PipelineStage { model_id: "llama3-8b".into(), role: CouncilRole::Auditor, prompt_template: "Critique: {input}".into(), temperature: 0.5, top_p: 0.85, system_prompt: Some("Be thorough".into()) },
+                PipelineStage {
+                    model_id: "llama3-8b".into(),
+                    role: CouncilRole::Generator,
+                    prompt_template: "Answer: {input}".into(),
+                    temperature: 0.7,
+                    top_p: 0.9,
+                    system_prompt: None,
+                },
+                PipelineStage {
+                    model_id: "llama3-8b".into(),
+                    role: CouncilRole::Auditor,
+                    prompt_template: "Critique: {input}".into(),
+                    temperature: 0.5,
+                    top_p: 0.85,
+                    system_prompt: Some("Be thorough".into()),
+                },
             ],
             mode: CouncilMode::Concurrent,
             fallback: swai_core::council::FallbackAction::Skip,
@@ -271,7 +294,14 @@ mod tests {
     #[test]
     fn test_tab_state_to_config() {
         let state = CouncilTabState {
-            stages: vec![Arc::new(Mutex::new(PipelineStage { model_id: "test-model".into(), role: CouncilRole::Synthesizer, prompt_template: "Summarize: {input}".into(), temperature: 0.3, top_p: 0.95, system_prompt: None }))],
+            stages: vec![Arc::new(Mutex::new(PipelineStage {
+                model_id: "test-model".into(),
+                role: CouncilRole::Synthesizer,
+                prompt_template: "Summarize: {input}".into(),
+                temperature: 0.3,
+                top_p: 0.95,
+                system_prompt: None,
+            }))],
             mode: CouncilMode::Sequential,
         };
         let cfg = state.to_config();
