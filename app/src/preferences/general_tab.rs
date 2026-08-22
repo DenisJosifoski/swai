@@ -158,9 +158,46 @@ pub fn add_clear_logs_button(parent: &PreferencesGroup) -> ActionRow {
                 if let Ok(config) = Config::load() {
                     let log_dir = config.log_dir();
                     if log_dir.exists() {
+                        // Find the most recent active log file for each configured model.
+                        let active_log_paths: Vec<PathBuf> = config
+                            .models
+                            .iter()
+                            .filter_map(|m| {
+                                let stem = m
+                                    .script_path
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or(&m.id);
+                                let mut matching = Vec::new();
+                                if let Ok(entries) = std::fs::read_dir(&log_dir) {
+                                    for entry in entries.flatten() {
+                                        let name = entry.file_name().to_string_lossy().to_string();
+                                        if name.starts_with(&format!("{}_", stem)) && name.ends_with(".log") {
+                                            matching.push(entry.path());
+                                        }
+                                    }
+                                }
+                                matching.sort();
+                                matching.pop()
+                            })
+                            .collect();
+
                         if let Ok(entries) = std::fs::read_dir(&log_dir) {
                             for entry in entries.flatten() {
-                                let _ = std::fs::remove_file(entry.path());
+                                let path = entry.path();
+                                if path.is_file() {
+                                    if active_log_paths.contains(&path) {
+                                        // Truncate active log file in-place so running process
+                                        // preserves its open file descriptor and writes new logs.
+                                        let _ = std::fs::OpenOptions::new()
+                                            .write(true)
+                                            .truncate(true)
+                                            .open(&path);
+                                    } else {
+                                        // Delete older/rotated log files completely.
+                                        let _ = std::fs::remove_file(&path);
+                                    }
+                                }
                             }
                             tracing::info!("Cleared all log files in {:?}", log_dir);
                         }

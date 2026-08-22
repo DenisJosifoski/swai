@@ -46,11 +46,14 @@ pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, cli
     let request_body_len = request_body.len();
 
     let target_port = resolve_target_port(&proxy_state, &request_body);
+    let enable_council = proxy_state.enable_council;
     drop(proxy_state);
 
     // Council model interception: route to CouncilEngine locally.
+    // Only active when enable_council is true in proxy state; when disabled,
+    // council-model requests fall through to normal model routing.
     if let Some(model_id) = extract_model_from_body(&request_body) {
-        if is_council_model(&model_id) {
+        if is_council_model(&model_id) && enable_council {
             let mut pipeline_config = req
                 .headers()
                 .iter()
@@ -354,7 +357,6 @@ pub fn is_hop_by_hop_header(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
         "connection"
-            | "content-length"
             | "keep-alive"
             | "proxy-authenticate"
             | "proxy-authorization"

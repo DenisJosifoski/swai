@@ -6,7 +6,7 @@
 
 use crate::process_manager::{ModelState, ProcessError};
 use std::time::Duration;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Build an HTTP client with a timeout to prevent indefinite hangs on
 /// unresponsive or hung listeners during health monitoring.
@@ -50,8 +50,8 @@ impl HealthMonitor {
                     state = ModelState::Starting;
                 }
                 Err(e) => {
-                    // Health check failed — model might still be starting up
-                    warn!("health check failed: {}", e);
+                    // Model is still starting up — log probe at debug level until ready or timeout.
+                    debug!("health check probe (model starting up): {}", e);
                     // Don't fail immediately — give it a few more seconds
                     if std::time::Instant::now() + Duration::from_secs(3) >= deadline {
                         state = ModelState::Error(format!(
@@ -95,7 +95,7 @@ impl HealthMonitor {
                 Ok((false, Some(_))) => ModelState::Loading,
                 Ok((false, None)) => ModelState::Starting,
                 Err(e) => {
-                    warn!("health check failed: {}", e);
+                    debug!("health check probe (model starting up): {}", e);
                     // Keep current state, but timeout if we're past deadline + 3s
                     if std::time::Instant::now() + Duration::from_secs(3) >= deadline {
                         ModelState::Error(format!(

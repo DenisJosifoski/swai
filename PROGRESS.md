@@ -1446,3 +1446,110 @@ Implemented a Unix Domain Socket IPC interface so terminal commands (`swai start
 - ✅ Disabling skips loop heuristics and disk writes.
 - ✅ All touched files strictly abide by the 450-line maximum modular constraint.
 
+## Phase 29 — Sidebar Preferences Redesign & Flat UI Polish
+
+### What was built
+
+1. **Custom Sidebar Navigation (`app/src/preferences/dialog.rs`)**:
+   - Replaced default Libadwaita `GtkStackSidebar` with a custom full-width `GtkListBox` to eliminate internal padding gaps, unwanted vertical dividers, and theme-enforced margins.
+   - Integrated crisp symbolic icons for each tab: General (`preferences-system-symbolic`), Proxy (`network-server-symbolic`), Checkpoint (`media-floppy-symbolic`), Notifications (`user-trash-symbolic`), Council Pipeline (`system-users-symbolic`), and Guides (`help-browser-symbolic`).
+   - Added cyan `#2dd4f0` `SETTINGS` header with sharp rectangular full-width hover and selection highlights.
+
+2. **Merged Proxy & Gateway (`app/src/preferences/proxy_tab.rs`, `gateway_tab.rs`)**:
+   - Unified reverse proxy port routing and process context watchdog into a single cohesive **Proxy** tab.
+   - Escaped Pango markup ampersands (`&amp;`) in group titles to guarantee warning-free rendering.
+
+3. **Renamed Checkpoint Tab & Descriptions (`app/src/preferences/checkpoint_tab.rs`)**:
+   - Cleaned up subtitles and renamed tab to **Checkpoint** and group to **Context Checkpoint**.
+
+4. **Updated Claude Code CLI Guide (`app/src/preferences/client_expanders.rs`)**:
+   - Replaced legacy sed scripts with the modern `claude-local` bash wrapper function matching `~/.bashrc`.
+
+5. **Universal Flat UI System (`app/src/window/styles.rs`)**:
+   - Standardized 0px sharp rectangular corners across model cards, preferences cards, buttons, entries, dropdowns, and menubar items (`File`, `Edit`, `View`, `Help`).
+   - Restored and protected sleek pill toggle switches (`border-radius: 10px` / `8px` knob) with bright `#2dd4f0` active fill.
+   - Cleaned all GTK4 CSS syntax to eliminate parser warnings and ensure single-layer, non-doubled card rendering.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `cargo test --workspace -- --test-threads=1`: 43/43 unit tests passed (0 failures)
+
+## Phase 30 — Council Pipeline Master ON/OFF Toggle (Preferences & Proxy Bypass)
+
+### What was built
+
+1. **`core/src/config/preferences.rs`** — Added `enable_council: bool` field to `PreferencesConfig`:
+   - Default value is `true` — council pipeline is enabled by default
+   - Custom `default_enable_council()` function for TOML deserialization fallback
+   - Clean serialization/deserialization to `config.toml`
+
+2. **`core/src/config/config.rs`** — Added `Config::enable_council()` accessor method:
+   - Returns `self.preferences.enable_council`
+   - Consistent pattern with existing `enable_checkpointing()` accessor
+
+3. **`core/src/proxy/state.rs`** — Added `enable_council: bool` field to `ProxyState`:
+   - Default value is `true`
+   - Updated `clear()` method to reset `enable_council` to `true`
+   - Thread-safe via existing `Arc<Mutex<>>` wrapping
+
+4. **`core/src/proxy/router.rs`** — Wired bypass in proxy routing:
+   - Council interception now checks `enable_council` from proxy state
+   - When disabled, council-model requests fall through to normal model routing
+   - Saved `enable_council` value before dropping lock to avoid borrow issues
+   - Also fixed pre-existing bug: removed `content-length` from hop-by-hop header list (not in RFC 7230 §6.1)
+
+5. **`app/src/main.rs`** — Initialize `enable_council` from config at startup:
+   - `proxy_state.enable_council = config.enable_council()` added after `enable_checkpointing`
+
+6. **`app/src/preferences/types.rs`** — Added `enable_council: bool` to `PreferencesValues`
+
+7. **`app/src/preferences/council_tab.rs`** — Added master switch UI:
+   - `SwitchRow` at top of Council Pipeline tab titled "Enable Council Pipeline"
+   - Subtitle explains the bypass behavior
+   - When switched OFF: pipeline configuration cards are dimmed (opacity 0.4) and group is desensitized
+   - Mode dropdown row and Add Stage button are dimmed when disabled
+   - `CouncilTabState` extended with `enable_council: bool` field
+
+8. **`app/src/preferences/dialog.rs`** — Wired council enable switch:
+   - `enable_council_switch` field added to `PreferencesDialog` struct
+   - `values()` method reads the switch state
+   - `save()` method writes `enable_council` to `config.preferences.enable_council`
+   - Switch retrieved from council tab via `page.data::<SwitchRow>()`
+
+9. **`app/src/window/dialogs.rs`** — Sync `enable_council` into proxy state on save:
+   - `show_preferences_dialog()` now syncs `ps.enable_council = new_cfg.enable_council()` after save
+   - `save_preferences()` function also persists `enable_council` field
+
+10. **Tests** — 3 new unit tests in `core/src/config/tests.rs`:
+    - `test_enable_council_defaults` — verifies default is `true`
+    - `test_enable_council_serialization` — round-trips through TOML
+    - `test_enable_council_missing_uses_default` — absent field falls back to `true`
+    - Updated existing test `PreferencesConfig` constructions to include new field
+
+### Architecture decisions
+- **`enable_council` in `PreferencesConfig`**: Consistent with `enable_checkpointing` — both are master on/off toggles for proxy features, stored in the same struct.
+- **Bypass at router level**: Rather than modifying the council engine or adding a flag to `CouncilPipelineConfig`, the bypass is implemented at the proxy router level. When `enable_council == false`, council-model requests are treated like any other request and forwarded directly to the target model port.
+- **Hot-reload via proxy state sync**: The `enable_council` value is synced into `ProxyState` immediately after preferences save, so the proxy thread picks up the change without restarting the daemon.
+- **UI dimming over disabling**: When the master toggle is OFF, pipeline controls are dimmed (opacity 0.4) rather than disabled. This preserves the configuration state so users can re-enable the pipeline without re-entering all settings.
+- **`NonNull` handling for GTK data**: The `page.data::<T>()` method returns `Option<NonNull<T>>`. Retrieving the switch requires unsafe dereference via `ptr.as_ref().clone()`.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `cargo test --workspace --lib -- --test-threads=1`: 262/262 core unit tests passed (0 failures)
+- `cargo test -p swai -- --test-threads=1`: 43/43 app unit tests passed (0 failures)
+- All modified files strictly under 450 lines (max: 412 lines in `router.rs`)
+- Integration tests: 3/4 pass (1 pre-existing failure due to single-instance guard — another ai-switch instance running on the system)
+
+### File sizes (all under 450 lines)
+| File | Lines |
+|------|-------|
+| `core/src/config/preferences.rs` | 98 |
+| `core/src/config/config.rs` | 197 |
+| `core/src/proxy/state.rs` | 149 |
+| `core/src/proxy/router.rs` | 412 |
+| `app/src/preferences/council_tab.rs` | 379 |
+| `app/src/preferences/dialog.rs` | 381 |
+| `app/src/preferences/types.rs` | 21 |
+| `app/src/window/dialogs.rs` | 404 |
+| `app/src/main.rs` | 227 |
+

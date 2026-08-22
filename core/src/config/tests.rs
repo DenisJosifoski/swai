@@ -146,6 +146,7 @@ mod tests {
                 max_concurrent_models: 2,
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
+                enable_council: true,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -204,6 +205,7 @@ auto_restart_on_context_full = true
                 max_concurrent_models: 3,
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
+                enable_council: true,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -259,6 +261,7 @@ auto_restart_on_context_full = true
                 max_concurrent_models: 3,
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
+                enable_council: true,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -315,6 +318,7 @@ auto_restart_on_context_full = true
                 max_concurrent_models: 1,
                 checkpoint_summarizer_model: Some("ornith-35b".to_string()),
                 enable_checkpointing: true,
+                enable_council: true,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -360,5 +364,59 @@ auto_restart_on_context_full = true
         assert_eq!(models.len(), 2);
         assert_eq!(models[0], ("m1", "Model One"));
         assert_eq!(models[1], ("m2", "Model Two"));
+    }
+
+    #[test]
+    fn test_enable_council_defaults() {
+        // Verify enable_council defaults to true.
+        let config = Config {
+            schema_version: 1,
+            models: vec![],
+            global: GlobalSettings::default(),
+            preferences: PreferencesConfig::default(),
+            council: CouncilPipelineConfig::default(),
+        };
+        assert!(config.enable_council());
+    }
+
+    #[test]
+    fn test_enable_council_serialization() {
+        // Verify enable_council round-trips through TOML serialization.
+        let config = Config {
+            schema_version: 1,
+            models: vec![],
+            global: GlobalSettings::default(),
+            preferences: PreferencesConfig {
+                auto_follow_logs: true,
+                enable_notifications: true,
+                notify_on_switch: true,
+                autostart_on_login: false,
+                max_concurrent_models: 1,
+                checkpoint_summarizer_model: None,
+                enable_checkpointing: true,
+                enable_council: false,
+            },
+            council: CouncilPipelineConfig::default(),
+        };
+
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        assert!(serialized.contains("enable_council"));
+
+        let deserialized: Config = toml::from_str(&serialized).unwrap();
+        assert!(!deserialized.enable_council());
+    }
+
+    #[test]
+    fn test_enable_council_missing_uses_default() {
+        // When enable_council is absent from TOML, default should be true.
+        let toml_str = r#"
+schema_version = 1
+
+[global]
+log_dir = ""
+proxy_port = 9080
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.enable_council());
     }
 }

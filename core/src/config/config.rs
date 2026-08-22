@@ -169,6 +169,16 @@ impl Config {
         self.preferences.enable_checkpointing
     }
 
+    /// Get the effective enable-council preference.
+    ///
+    /// When `true` (default), the proxy intercepts council-model requests and
+    /// runs them through the synthetic debate pipeline. When `false`, council
+    /// requests are routed directly to the target model with zero debate
+    /// overhead.
+    pub fn enable_council(&self) -> bool {
+        self.preferences.enable_council
+    }
+
     /// Get all configured models as a list of (id, name) pairs.
     ///
     /// Used by the Preferences UI to populate dropdown selectors that let

@@ -3,6 +3,11 @@
 //! UI controls for configuring the council debate pipeline:
 //! stage list (add/remove), role picker, model dropdown, prompt template,
 //! and pipeline mode selector (Auto/Concurrent/Sequential).
+//!
+//! A master ON/OFF switch at the top of the tab enables or disables the
+//! entire council pipeline. When disabled, the proxy bypasses synthetic
+//! debate interception entirely, routing council-model requests directly
+//! to the target model with zero overhead.
 
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +15,7 @@ use gtk::{DropDown, Orientation, StringList};
 use gtk4 as gtk;
 
 use adw::prelude::*;
-use adw::{ActionRow, EntryRow, PreferencesGroup, PreferencesPage};
+use adw::{ActionRow, EntryRow, PreferencesGroup, PreferencesPage, SwitchRow};
 
 use swai_core::council::{CouncilMode, CouncilPipelineConfig, CouncilRole, PipelineStage};
 use swai_core::config::Config;
@@ -20,6 +25,7 @@ use swai_core::config::Config;
 pub struct CouncilTabState {
     pub stages: Vec<Arc<Mutex<PipelineStage>>>,
     pub mode: CouncilMode,
+    pub enable_council: bool,
 }
 
 impl CouncilTabState {
@@ -32,6 +38,7 @@ impl CouncilTabState {
                 .map(|s| Arc::new(Mutex::new(s.clone())))
                 .collect(),
             mode: config.council.mode.clone(),
+            enable_council: config.enable_council(),
         }
     }
 
@@ -58,6 +65,22 @@ pub fn build_council_tab(config: &Config, state: &Arc<Mutex<CouncilTabState>>) -
     let page = PreferencesPage::new();
     page.set_title("Council Pipeline");
 
+    // Master ON/OFF switch.
+    let master_group = PreferencesGroup::new();
+    master_group.set_title("Council Pipeline");
+
+    let enable_switch = SwitchRow::builder()
+        .title("Enable Council Pipeline")
+        .subtitle(
+            "Allow multi-model debate arbitration. When OFF, multiple models \
+             run concurrently for independent tools with direct routing.",
+        )
+        .active(state.lock().unwrap().enable_council)
+        .build();
+    master_group.add(&enable_switch);
+    page.add(&master_group);
+
+    // Pipeline configuration group (dimmed when master switch is OFF).
     let group = PreferencesGroup::new();
     group.set_title("Pipeline Stages");
     group.set_description(Some("Configure the debate pipeline stages"));
@@ -106,13 +129,55 @@ pub fn build_council_tab(config: &Config, state: &Arc<Mutex<CouncilTabState>>) -
     group.add(&add_btn);
     page.add(&group);
 
+    // Wire master switch to dim/disable pipeline controls.
+    let gw = group.clone();
+    let abw = add_btn.clone();
+    let mdw = mode_dropdown.clone();
+    let stw = state.clone();
+    enable_switch.connect_active_notify(move |sw| {
+        let enabled = sw.is_active();
+        // Update state.
+        stw.lock().unwrap().enable_council = enabled;
+        // Dim or restore the pipeline controls.
+        set_pipeline_sensitive(&gw, &abw, &mdw, enabled);
+    });
+
+    // Initial dim state.
+    {
+        let enabled = state.lock().unwrap().enable_council;
+        set_pipeline_sensitive(&group, &add_btn, &mode_dropdown, enabled);
+    }
+
     unsafe {
         page.set_data::<Arc<Mutex<CouncilTabState>>>("council-tab-state", state.clone());
         page.set_data::<gtk::Box>("stage-list", stage_list);
         page.set_data::<DropDown>("mode-dropdown", mode_dropdown);
+        page.set_data::<SwitchRow>("enable-switch", enable_switch);
     }
 
     page
+}
+
+/// Set sensitivity of all pipeline configuration widgets.
+///
+/// When `enabled` is false, widgets are dimmed (not destroyed) so users can
+/// still see the configuration but understand it is inactive.
+fn set_pipeline_sensitive(
+    group: &PreferencesGroup,
+    add_btn: &gtk::Button,
+    mode_dropdown: &DropDown,
+    enabled: bool,
+) {
+    let opacity = if enabled { 1.0 } else { 0.4 };
+    add_btn.set_opacity(opacity);
+
+    // Dim the mode dropdown row.
+    if let Some(row) = mode_dropdown.parent() {
+        row.set_opacity(opacity);
+    }
+
+    // Toggle sensitivity on the group itself.
+    group.set_sensitive(enabled);
 }
 
 /// Mode selector row (Auto / Concurrent / Sequential).
@@ -303,6 +368,7 @@ mod tests {
                 system_prompt: None,
             }))],
             mode: CouncilMode::Sequential,
+            enable_council: true,
         };
         let cfg = state.to_config();
         assert_eq!(cfg.stages.len(), 1);

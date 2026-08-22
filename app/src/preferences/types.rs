@@ -16,4 +16,6 @@ pub struct PreferencesValues {
     pub checkpoint_summarizer_model: Option<String>,
 
     pub enable_checkpointing: bool,
+
+    pub enable_council: bool,
 }

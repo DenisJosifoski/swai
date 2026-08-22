@@ -25,6 +25,9 @@ pub struct PreferencesConfig {
 
     #[serde(default = "default_enable_checkpointing")]
     pub enable_checkpointing: bool,
+
+    #[serde(default = "default_enable_council")]
+    pub enable_council: bool,
 }
 
 impl Default for PreferencesConfig {
@@ -37,6 +40,7 @@ impl Default for PreferencesConfig {
             max_concurrent_models: 1,
             checkpoint_summarizer_model: None,
             enable_checkpointing: true,
+            enable_council: true,
         }
     }
 }
@@ -62,6 +66,10 @@ fn default_max_concurrent_models() -> usize {
 }
 
 fn default_enable_checkpointing() -> bool {
+    true
+}
+
+fn default_enable_council() -> bool {
     true
 }
 

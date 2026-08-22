@@ -30,6 +30,11 @@ pub struct ProxyState {
     /// When `false`, bypasses diff generation for file-write tools and loop
     /// breaker heuristic entirely. The proxy acts as a transparent router.
     pub enable_checkpointing: bool,
+
+    /// When `false`, bypasses synthetic Council arbitration entirely. Incoming
+    /// requests targeting council models are routed directly to the target
+    /// model port with zero debate overhead.
+    pub enable_council: bool,
 }
 
 impl Default for ProxyState {
@@ -40,6 +45,7 @@ impl Default for ProxyState {
             model_ctx_sizes: HashMap::new(),
             is_loading: false,
             enable_checkpointing: true,
+            enable_council: true,
         }
     }
 }
@@ -138,5 +144,6 @@ impl ProxyState {
         self.primary_port = None;
         self.is_loading = false;
         self.enable_checkpointing = true;
+        self.enable_council = true;
     }
 }

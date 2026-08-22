@@ -51,13 +51,14 @@ pub fn show_preferences_dialog(
                     if let Ok(new_cfg) = Config::load() {
                         let enabled = new_cfg.enable_checkpointing();
                         if let Ok(mut pm) = pm_clone.lock() {
-                            pm.update_config(new_cfg);
+                            pm.update_config(new_cfg.clone());
                             tracing::info!("Updated ProcessManager config in memory");
                         }
                         // Sync enable_checkpointing into proxy state so the
                         // proxy thread picks up the new value immediately.
                         if let Ok(mut ps) = ps_clone.lock() {
                             ps.enable_checkpointing = enabled;
+                            ps.enable_council = new_cfg.enable_council();
                         }
                     }
                 }
@@ -212,6 +213,7 @@ pub fn save_preferences(
     config.preferences.autostart_on_login = values.autostart_on_login;
     config.preferences.max_concurrent_models = values.max_concurrent_models;
     config.preferences.enable_checkpointing = values.enable_checkpointing;
+    config.preferences.enable_council = values.enable_council;
 
     Config::validate(&config, config_path)
         .map_err(|e| format!("Config validation error: {}", e))?;

@@ -43,6 +43,7 @@ mod tests {
                 max_concurrent_models: 4,
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
+                enable_council: true,
             },
             council: CouncilPipelineConfig::default(),
         };

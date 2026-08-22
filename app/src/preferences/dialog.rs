@@ -32,6 +32,7 @@ pub struct PreferencesDialog {
     max_concurrent_spin: SpinButton,
     summarizer_model_combo: DropDown,
     enable_checkpointing_switch: SwitchRow,
+    enable_council_switch: SwitchRow,
     council_tab_state: Arc<Mutex<CouncilTabState>>,
 }
 
@@ -70,6 +71,7 @@ impl PreferencesDialog {
         let max_concurrent = self.max_concurrent_spin.value() as usize;
         let summarizer_model = self.extract_summarizer_model();
         let enable_checkpointing = self.enable_checkpointing_switch.is_active();
+        let enable_council = self.enable_council_switch.is_active();
 
         PreferencesValues {
             log_dir,
@@ -82,6 +84,7 @@ impl PreferencesDialog {
             max_concurrent_models: max_concurrent,
             checkpoint_summarizer_model: summarizer_model,
             enable_checkpointing,
+            enable_council,
         }
     }
 
@@ -213,6 +216,15 @@ impl PreferencesDialog {
         let council_tab_state = Arc::new(Mutex::new(CouncilTabState::new(config)));
         let council_page = build_council_tab(config, &council_tab_state);
 
+        // Retrieve the enable_council switch from the council tab.
+        let enable_council_switch = unsafe {
+            let ptr = council_page
+                .data::<SwitchRow>("enable-switch")
+                .expect("council tab should have enable-switch");
+            // NonNull<SwitchRow> -> &SwitchRow -> clone
+            ptr.as_ref().clone()
+        };
+
         let (guides_page, _) = build_guides_tab(config);
 
         // Add pages to stack with names
@@ -297,6 +309,7 @@ impl PreferencesDialog {
             max_concurrent_spin: general_widgets.max_concurrent_spin,
             summarizer_model_combo: checkpoint_widgets.summarizer_model_combo,
             enable_checkpointing_switch: checkpoint_widgets.enable_checkpointing_switch,
+            enable_council_switch,
             council_tab_state,
         }
     }
@@ -328,6 +341,7 @@ impl PreferencesDialog {
         let max_concurrent = self.max_concurrent_spin.value() as usize;
         let summarizer_model = self.extract_summarizer_model();
         let enable_checkpointing = self.enable_checkpointing_switch.is_active();
+        let enable_council = self.enable_council_switch.is_active();
 
         let mut config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
         config.global.log_dir = log_dir;
@@ -340,6 +354,7 @@ impl PreferencesDialog {
         config.preferences.max_concurrent_models = max_concurrent;
         config.preferences.checkpoint_summarizer_model = summarizer_model;
         config.preferences.enable_checkpointing = enable_checkpointing;
+        config.preferences.enable_council = enable_council;
 
         // Save council pipeline config.
         config.council = self.council_config();
