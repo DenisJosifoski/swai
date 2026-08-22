@@ -16,13 +16,16 @@ pub struct CheckpointWidgets {
     pub summarizer_model_combo: DropDown,
 }
 
-/// Build the Checkpointing preferences page.
+/// Build the Checkpoint preferences page.
 pub fn build_checkpoint_tab(config: &Config) -> (PreferencesPage, CheckpointWidgets) {
     let page = PreferencesPage::new();
-    page.set_title("Checkpointing");
+    page.set_title("Checkpoint");
 
     let group = PreferencesGroup::new();
-    group.set_title("Context Checkpointing");
+    group.set_title("Context Checkpoint");
+    group.set_description(Some(
+        "Summarizes earlier turns at ~70% context capacity to prevent context exhaustion and retain conversation memory across long sessions."
+    ));
 
     let enable_switch = add_enable_checkpointing_row(&group, config);
     let summarizer_dropdown = add_summarizer_model_row(&group, config);
@@ -40,8 +43,8 @@ pub fn build_checkpoint_tab(config: &Config) -> (PreferencesPage, CheckpointWidg
 /// Add a switch row for enabling/disabling context checkpointing.
 pub fn add_enable_checkpointing_row(parent: &PreferencesGroup, config: &Config) -> SwitchRow {
     let row = SwitchRow::builder()
-        .title("Preserve conversation history")
-        .subtitle("Summarizes earlier turns at ~70% context capacity (~165k chars for 64k models) to prevent context exhaustion")
+        .title("Enable Context Checkpoint")
+        .subtitle("Switch Context Checkpoint ON/OFF")
         .build();
 
     let enabled = config.enable_checkpointing();

@@ -1,18 +1,8 @@
-//! SWAI — Gateway Preferences Tab.
-//!
-//! Proxy port configuration.
+//! SWAI — Client Configuration & Clipboard Helpers.
 
 use adw::prelude::*;
-use adw::{EntryRow, PreferencesGroup, PreferencesPage};
-
 use std::path::PathBuf;
 use std::process::Command;
-use swai_core::config::Config;
-
-/// Widget handles for the Gateway tab.
-pub struct GatewayWidgets {
-    pub proxy_port_entry: EntryRow,
-}
 
 /// Copy text to the system clipboard.
 pub fn copy_to_clipboard(text: &str) {
@@ -57,32 +47,4 @@ pub fn open_codex_config() {
 
     let uri = format!("file://{}", config_path.display());
     let _ = Command::new("xdg-open").arg(&uri).spawn();
-}
-
-/// Build the Gateway preferences page (proxy port only).
-pub fn build_gateway_tab(config: &Config) -> (PreferencesPage, GatewayWidgets) {
-    let page = PreferencesPage::new();
-    page.set_title("Gateway");
-
-    let group = PreferencesGroup::new();
-    group.set_title("Proxy Configuration");
-
-    let proxy_port_entry = add_proxy_port_row(&group, config);
-
-    page.add(&group);
-
-    let widgets = GatewayWidgets { proxy_port_entry };
-
-    (page, widgets)
-}
-
-/// Add a proxy port entry row.
-pub fn add_proxy_port_row(parent: &PreferencesGroup, config: &Config) -> EntryRow {
-    let row = EntryRow::builder().title("Proxy port").build();
-
-    let proxy_port = config.proxy_port();
-    row.set_text(&proxy_port.to_string());
-
-    parent.add(&row);
-    row
 }

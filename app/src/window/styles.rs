@@ -125,6 +125,41 @@ pub const CSS: &str = r#"
         font-family: monospace;
         font-size: 11pt;
     }
+
+    /* ── Preferences Sidebar (Steam-style navigation) ──────────── */
+    .sidebar-container {
+        background-color: alpha(@theme_fg_color, 0.04);
+        border: none;
+    }
+    .sidebar-list {
+        background-color: transparent;
+        border: none;
+    }
+    .sidebar-list row {
+        border-radius: 0px;
+        margin: 0px;
+        padding: 0px;
+        border: none;
+        transition: background-color 100ms ease;
+    }
+    .sidebar-list row:hover {
+        background-color: alpha(@theme_fg_color, 0.08);
+    }
+    .sidebar-list row:selected {
+        background-color: alpha(@theme_fg_color, 0.16);
+        color: @theme_fg_color;
+    }
+    .sidebar-list row:selected:hover {
+        background-color: alpha(@theme_fg_color, 0.20);
+    }
+
+    /* ── Collapse unused Dialog action area ────────────────────── */
+    dialog .dialog-action-area {
+        min-height: 0px;
+        padding: 0px;
+        margin: 0px;
+        border: none;
+    }
 "#;
 
 pub fn load_css() {
@@ -134,7 +169,7 @@ pub fn load_css() {
         gtk::style_context_add_provider_for_display(
             &display,
             &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            gtk::STYLE_PROVIDER_PRIORITY_USER,
         );
     }
 }

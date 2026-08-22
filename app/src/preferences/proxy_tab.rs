@@ -1,15 +1,15 @@
 //! SWAI — Proxy Preferences Tab.
 //!
-//! Auto-restart on context full toggle with fixed 98% KV-cache watchdog threshold.
-
+//! Network routing and process context watchdog settings.
 
 use adw::prelude::*;
-use adw::{PreferencesGroup, PreferencesPage, SwitchRow};
+use adw::{EntryRow, PreferencesGroup, PreferencesPage, SwitchRow};
 
 use swai_core::config::Config;
 
 /// Widget handles for the Proxy tab.
 pub struct ProxyWidgets {
+    pub proxy_port_entry: EntryRow,
     pub auto_restart_switch: SwitchRow,
 }
 
@@ -18,16 +18,37 @@ pub fn build_proxy_tab(config: &Config) -> (PreferencesPage, ProxyWidgets) {
     let page = PreferencesPage::new();
     page.set_title("Proxy");
 
-    let group = PreferencesGroup::new();
-    group.set_title("Proxy Behavior");
+    // Network & Port group
+    let network_group = PreferencesGroup::new();
+    network_group.set_title("Network & Routing");
 
-    let auto_restart_switch = add_auto_restart_row(&group, config);
+    let proxy_port_entry = add_proxy_port_row(&network_group, config);
+    page.add(&network_group);
 
-    page.add(&group);
+    // Watchdog group
+    let watchdog_group = PreferencesGroup::new();
+    watchdog_group.set_title("Process & Context Watchdog");
 
-    let widgets = ProxyWidgets { auto_restart_switch };
+    let auto_restart_switch = add_auto_restart_row(&watchdog_group, config);
+    page.add(&watchdog_group);
+
+    let widgets = ProxyWidgets {
+        proxy_port_entry,
+        auto_restart_switch,
+    };
 
     (page, widgets)
+}
+
+/// Add a proxy port entry row.
+pub fn add_proxy_port_row(parent: &PreferencesGroup, config: &Config) -> EntryRow {
+    let row = EntryRow::builder().title("Proxy port").build();
+
+    let proxy_port = config.proxy_port();
+    row.set_text(&proxy_port.to_string());
+
+    parent.add(&row);
+    row
 }
 
 /// Add the auto-restart on context full switch row.

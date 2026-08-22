@@ -104,19 +104,31 @@ pub fn build_claude_cli_expander(config: &Config) -> ExpanderRow {
 
     // Monospace bash function display label.
     let func_display = format!(
-            "claude-local() {{\n  export ANTHROPIC_BASE_URL=http://127.0.0.1:{port}\n  \
-             export ANTHROPIC_AUTH_TOKEN=local\n  export ANTHROPIC_API_KEY=\"\"\n  local live_model\n  \
-             live_model=$(curl -s http://127.0.0.1:{port}/v1/models 2>/dev/null | grep -o '\"id\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4 | sed 's/^claude-//')\n  \
-             export ANTHROPIC_MODEL=\"${{live_model:-unknown}}[1m]\"\n  \
-             export ANTHROPIC_SMALL_FAST_MODEL=\"$ANTHROPIC_MODEL\"\n  echo \"🚀 Claude Code → $live_model\"\n  claude \"$@\"\n}}\n\n\
-             claude-with() {{\n  local target=\"$1\"; shift\n  export ANTHROPIC_BASE_URL=http://127.0.0.1:{port}\n  \
-             export ANTHROPIC_AUTH_TOKEN=local\n  export ANTHROPIC_API_KEY=\"\"\n  local live_model\n  \
-             live_model=$(curl -s http://127.0.0.1:{port}/v1/models 2>/dev/null | grep -o '\"id\":\"[^\"]*\"' | cut -d'\"' -f4 | grep -i \"$target\" | head -1 | sed 's/^claude-//')\n  \
-             if [ -z \"$live_model\" ]; then echo \"⚠️  No SWAI model matching '$target'\"; return 1; fi\n  \
-             export ANTHROPIC_MODEL=\"${{live_model}}[1m]\"\n  export ANTHROPIC_SMALL_FAST_MODEL=\"$ANTHROPIC_MODEL\"\n  \
-             echo \"🚀 Claude Code → $live_model\"\n  claude \"$@\"\n}}",
-            port = port,
-        );
+        "claude-local() {{\n  \
+         export ANTHROPIC_BASE_URL=http://localhost:{port}\n  \
+         export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1\n  \
+         export CLAUDE_CODE_DISABLE_1M_CONTEXT=1\n  \
+         export ANTHROPIC_AUTH_TOKEN=local\n  \
+         unset ANTHROPIC_API_KEY\n\n  \
+         local target=\"$1\"\n  \
+         if [ -n \"$target\" ]; then\n    \
+           shift\n    \
+           local live_model\n    \
+           live_model=$(curl -s http://localhost:{port}/v1/models 2>/dev/null \\\n      \
+             | grep -o '\"id\":\"[^\"]*\"' | cut -d'\"' -f4 | grep -i \"$target\" | head -1)\n    \
+           if [ -z \"$live_model\" ]; then\n      \
+             echo \"⚠️  No SWAI model matching '$target'. Available:\"\n      \
+             curl -s http://localhost:{port}/v1/models 2>/dev/null \\\n        \
+               | grep -o '\"id\":\"[^\"]*\"' | cut -d'\"' -f4\n      \
+             return 1\n    \
+           fi\n    \
+           export ANTHROPIC_MODEL=\"$live_model\"\n    \
+           export ANTHROPIC_SMALL_FAST_MODEL=\"$live_model\"\n    \
+           echo \"🚀 Claude Code → $live_model\"\n  \
+         fi\n\n  \
+         claude \"$@\"\n}}",
+        port = port,
+    );
     let instructions = gtk::Label::builder()
         .label(&func_display)
         .use_markup(false)
@@ -129,11 +141,11 @@ pub fn build_claude_cli_expander(config: &Config) -> ExpanderRow {
 
     // Explanatory footer label.
     let footer_label = gtk::Label::builder()
-            .label("Reload with `source ~/.bashrc`. Run `claude-local` for auto-selected model, or `claude-with <name>` (e.g. `claude-with qwopus`) to target a specific running model.")
-            .halign(gtk::Align::Start)
-            .wrap(true)
-            .margin_top(6)
-            .build();
+        .label("Reload with `source ~/.bashrc`. Run `claude-local` for the active model, or `claude-local <name>` (e.g. `claude-local ornith`) to target a specific model.")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .margin_top(6)
+        .build();
     content.append(&footer_label);
 
     // Button row: "Copy Config Block" and "Open Config File".
