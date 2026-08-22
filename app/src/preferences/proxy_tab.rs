@@ -20,14 +20,14 @@ pub fn build_proxy_tab(config: &Config) -> (PreferencesPage, ProxyWidgets) {
 
     // Network & Port group
     let network_group = PreferencesGroup::new();
-    network_group.set_title("Network & Routing");
+    network_group.set_title("Network &amp; Routing");
 
     let proxy_port_entry = add_proxy_port_row(&network_group, config);
     page.add(&network_group);
 
     // Watchdog group
     let watchdog_group = PreferencesGroup::new();
-    watchdog_group.set_title("Process & Context Watchdog");
+    watchdog_group.set_title("Process &amp; Context Watchdog");
 
     let auto_restart_switch = add_auto_restart_row(&watchdog_group, config);
     page.add(&watchdog_group);

@@ -25,19 +25,131 @@ pub const CSS: &str = r#"
         box-shadow: none;
     }
 
-    /* ── Model cards: rounded with subtle native border ────────── */
-    .card, .card-active {
+    /* ── Model cards & Preferences cards: single clean flat card ── */
+    preferencesgroup,
+    preferencesgroup box,
+    box.boxed-list {
+        background-color: transparent;
+        border: none;
+    }
+
+    /* ── Model cards: flat with generous padding ───────────────── */
+    .card,
+    .card-active {
         background-color: alpha(@theme_fg_color, 0.06);
         border: 1px solid alpha(@theme_fg_color, 0.12);
-        border-radius: 12px;
-        padding: 12px;
+        border-radius: 0px;
+        padding: 14px 16px;
+        margin: 3px 0px;
     }
     .card-active {
         background-color: alpha(@theme_fg_color, 0.08);
         border-left: 3px solid #2dd4f0;
     }
 
-    /* ── Switch: pill toggle matching button.png design ────────── */
+    /* ── Preferences cards ─────────────────────────────────────── */
+    list.boxed-list {
+        background-color: alpha(@theme_fg_color, 0.06);
+        border: 1px solid alpha(@theme_fg_color, 0.12);
+        border-radius: 0px;
+    }
+
+    /* ── Inner rows inside preferences cards ───────────────────── */
+    list.boxed-list > row {
+        border-radius: 0px;
+        background-color: transparent;
+    }
+
+    list.boxed-list > row:not(:last-child) {
+        border-bottom: 1px solid alpha(@theme_fg_color, 0.08);
+    }
+
+    /* ── All Buttons, Entries, Dropdowns & Steppers: 0px Sharp ──── */
+    button,
+    entry,
+    dropdown,
+    combobox,
+    spinbutton,
+    spinbutton button {
+        border-radius: 0px;
+    }
+
+    /* ── Menubar & Popover Menu Items: 0px Sharp Hover & Dropdown ─ */
+    menubar,
+    menubar *,
+    menubar item,
+    menubar > item,
+    menubar > item:hover,
+    menubar > item:active,
+    menubar > item:focus,
+    menubar > item:selected,
+    menubar.popover,
+    menubar.popover *,
+    menubar.popover item,
+    menubar.popover > item,
+    menubar.popover > item:hover,
+    menubar.popover > item:active,
+    menubar.popover > item:focus,
+    menubar.popover > item:selected,
+    headerbar menubar,
+    headerbar menubar *,
+    headerbar menubar item,
+    headerbar menubar > item,
+    headerbar menubar > item:hover,
+    headerbar menubar > item:active,
+    headerbar menubar > item:focus,
+    headerbar menubar > item:selected,
+    popovermenubar,
+    popovermenubar *,
+    popovermenubar menubaritem,
+    popovermenubar > menubaritem,
+    popovermenubar item,
+    popovermenubar button,
+    popovermenubar > item,
+    popovermenubar > button,
+    popovermenubar menubaritem:hover,
+    popovermenubar menubaritem:active,
+    popovermenubar menubaritem:focus,
+    popovermenubar menubaritem:checked,
+    popovermenubar menubaritem:selected,
+    popovermenubar item:hover,
+    popovermenubar item:active,
+    popovermenubar item:focus,
+    popovermenubar item:checked,
+    popovermenubar item:selected,
+    popovermenubar button:hover,
+    popovermenubar button:active,
+    popovermenubar button:focus,
+    popovermenubar button:checked,
+    headerbar menubaritem,
+    headerbar menubaritem:hover,
+    headerbar menubaritem:active,
+    headerbar menubaritem:focus,
+    headerbar menubaritem:checked,
+    headerbar menubaritem:selected,
+    headerbar popovermenubar,
+    headerbar popovermenubar *,
+    menubaritem,
+    menubaritem:hover,
+    menubaritem:active,
+    menubaritem:focus,
+    menubaritem:checked,
+    menubaritem:selected,
+    popover,
+    popover > contents,
+    popover.menu,
+    popover.menu contents,
+    popover modelbutton,
+    popover.menu modelbutton,
+    popover.menu modelbutton:hover,
+    popover.menu modelbutton:selected,
+    popover.menu modelbutton:focus,
+    modelbutton,
+    menuitem {
+        border-radius: 0px;
+    }
+
+    /* ── Switch: pill toggle matching stra.png design ──────────── */
     switch,
     switch:hover,
     switch:active,
@@ -126,7 +238,7 @@ pub const CSS: &str = r#"
         font-size: 11pt;
     }
 
-    /* ── Preferences Sidebar (Steam-style navigation) ──────────── */
+    /* ── Preferences Flat Navigation & Sharp Sizing ───────────── */
     .sidebar-container {
         background-color: alpha(@theme_fg_color, 0.04);
         border: none;
