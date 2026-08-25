@@ -97,7 +97,7 @@ impl PreferencesDialog {
     }
 
     /// Create a new preferences dialog transient to the given parent window.
-    pub fn new<T: IsA<Window>>(parent: &T, config: &Config) -> Self {
+    pub fn new<T: IsA<Window>>(parent: &T, config: &Config, active_model_id: Option<&str>) -> Self {
         let widget = gtk::Dialog::builder()
             .title("Preferences")
             .transient_for(parent)
@@ -213,7 +213,7 @@ impl PreferencesDialog {
         // Build all preference pages and add to stack
         let (general_page, general_widgets) = build_general_tab(config);
         let (proxy_page, proxy_widgets) = build_proxy_tab(config);
-        let (checkpoint_page, checkpoint_widgets) = build_checkpoint_tab(config);
+        let (checkpoint_page, checkpoint_widgets) = build_checkpoint_tab(config, active_model_id);
         let (notifications_page, notifications_widgets) = build_notifications_tab(config);
 
         let council_tab_state = Arc::new(Mutex::new(CouncilTabState::new(config)));

@@ -1589,4 +1589,35 @@ Implemented a Unix Domain Socket IPC interface so terminal commands (`swai start
 - Total: 323/323 unit and integration tests passed (0 failures)
 - All modified files strictly under 450 lines
 
+## Phase 34 — Bidirectional Context Size Synchronization & Reconciler
+
+### What was built
+
+1. **Context Size Detection & Script Rewriting (`core/src/import_wizard/inference.rs`)**:
+   - Implemented `detect_ctx_size(script_content: &str) -> Option<usize>` supporting `--ctx-size <N>`, `-c <N>`, `--ctx_size <N>`, `--ctx-size=<N>`, and `CTX_SIZE=<N>`.
+   - Implemented `sync_ctx_size_in_script(script_path: &Path, new_ctx: usize) -> Result<(), String>` that updates context window arguments in `.sh` files while preserving comments, formatting, and trailing newlines.
+
+2. **Startup Script Auto-Reconciliation (`core/src/reconciler/`)**:
+   - `reconcile_ctx_sizes(&mut self)` scans configured `.sh` launch scripts at SWAI startup.
+   - If an external edit bumped a model's context window (e.g. from 65,536 to 262,144 in `ornithQ6.sh`), SWAI reconciles in-memory config and writes back to `config.toml` automatically.
+
+3. **Edit Model Dialog Context Control (`app/src/manage_dialog/edit_dialog.rs`, `sync_ctx.rs`)**:
+   - Added **Context Size (Tokens)** row to the Edit Model dialog.
+   - "Save" updates `config.toml` and in-memory process manager.
+   - "Save & Sync Script" synchronizes both `config.toml` and the `.sh` script file on disk.
+
+4. **Live Dynamic Budget Estimation (`app/src/preferences/checkpoint_tab.rs`, `dialog.rs`)**:
+   - Relocated live budget calculation outside and below the main card into a sleek **Active Budget Estimation** helper block.
+   - Restored slim row height and centered spinbutton controls for the threshold row.
+   - Dynamically binds context calculations to the active running model and dropdown selections.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `cargo test --workspace --lib -- --test-threads=1`: 297/297 core unit tests passed (0 failures)
+- `cargo test -p swai -- --test-threads=1`: 43/43 app unit tests passed (0 failures)
+- `integration.rs`: 4/4 passed (0 failures)
+- Total: 344/344 unit and integration tests passed (0 failures)
+- All touched files strictly under 450 lines
+
+
 

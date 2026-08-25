@@ -5,6 +5,7 @@ use adw::prelude::*;
 use adw::EntryRow;
 
 use super::helpers::show_error;
+use super::sync_ctx::sync_ctx_size_in_script;
 use super::sync_port::sync_port_in_script;
 use crate::window::ImportMessage;
 use swai_core::config::Config;
@@ -16,6 +17,7 @@ pub fn show_edit_dialog(
     script_path: &std::path::PathBuf,
     port: u16,
     timeout: u16,
+    ctx_size: usize,
     import_sender: &std::sync::mpsc::Sender<ImportMessage>,
     row: adw::ActionRow,
     port_label: gtk::Label,
@@ -71,6 +73,10 @@ pub fn show_edit_dialog(
     let timeout_entry = add_timeout_row(timeout);
     prefs_group.add(&timeout_entry);
 
+    // ── Context Size ───────────────────────────────────────────
+    let ctx_size_entry = add_ctx_size_row(ctx_size);
+    prefs_group.add(&ctx_size_entry);
+
     content_area.append(&prefs_group);
 
     dialog.add_button("_Cancel", ResponseType::Cancel);
@@ -99,6 +105,7 @@ pub fn show_edit_dialog(
         let new_script_text = script_entry.text().to_string();
         let new_port_str = port_entry.text();
         let new_timeout_str = timeout_entry.text();
+        let new_ctx_size_str = ctx_size_entry.text();
 
         // ── Validate ─────────────────────────────────────────
         if new_script_text.is_empty() {
@@ -153,6 +160,18 @@ pub fn show_edit_dialog(
             }
         };
 
+        let new_ctx_size: usize = match new_ctx_size_str.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                show_error(
+                    Some(&dialog_clone),
+                    &format!("Invalid context size: {}", new_ctx_size_str),
+                    "SWAI — Edit Error",
+                );
+                return;
+            }
+        };
+
         // ── Check port uniqueness across all other models ──────
         if let Ok(cfg) = Config::load() {
             for model in &cfg.models {
@@ -178,6 +197,7 @@ pub fn show_edit_dialog(
             &script_path_buf,
             new_port,
             _new_timeout,
+            new_ctx_size,
         ) {
             Ok(()) => {
                 // Broadcast the name and port change to the main window.
@@ -194,8 +214,10 @@ pub fn show_edit_dialog(
                 port_label_for_update.set_text(&format!("port {}", new_port));
 
                 // If "Save & Sync Script" was clicked, also update the
-                // .sh launch script with the new port.
+                // .sh launch script with the new port and ctx-size.
                 if response == ResponseType::Apply {
+                    let mut sync_errors = Vec::new();
+
                     match sync_port_in_script(&script_path_buf, new_port) {
                         Ok(()) => {
                             tracing::info!(
@@ -205,12 +227,32 @@ pub fn show_edit_dialog(
                             );
                         }
                         Err(e) => {
-                            show_error(
-                                Some(&dialog_clone),
-                                &format!("Port synced in config but script update failed:\n{}", e),
-                                "SWAI — Script Sync Error",
+                            sync_errors.push(format!("port: {}", e));
+                        }
+                    }
+
+                    match sync_ctx_size_in_script(&script_path_buf, new_ctx_size) {
+                        Ok(()) => {
+                            tracing::info!(
+                                "Synced ctx-size {} into script {}",
+                                new_ctx_size,
+                                script_path_buf.display()
                             );
                         }
+                        Err(e) => {
+                            sync_errors.push(format!("ctx-size: {}", e));
+                        }
+                    }
+
+                    if !sync_errors.is_empty() {
+                        show_error(
+                            Some(&dialog_clone),
+                            &format!(
+                                "Saved to config but script sync failed:\n{}",
+                                sync_errors.join("\n")
+                            ),
+                            "SWAI — Script Sync Error",
+                        );
                     }
                 }
 
@@ -238,6 +280,14 @@ fn add_timeout_row(timeout: u16) -> EntryRow {
     EntryRow::builder()
         .title("Health Check Timeout (s)")
         .text(timeout.to_string())
+        .build()
+}
+
+/// Build a context size entry row pre-filled with the given value.
+fn add_ctx_size_row(ctx_size: usize) -> EntryRow {
+    EntryRow::builder()
+        .title("Context Size (Tokens)")
+        .text(ctx_size.to_string())
         .build()
 }
 
@@ -291,6 +341,7 @@ fn save_edit(
     new_script_path: &std::path::PathBuf,
     new_port: u16,
     new_timeout: u16,
+    new_ctx_size: usize,
 ) -> Result<(), String> {
     let config_path = Config::resolve_path()
         .ok_or_else(|| "No config file found at any expected location.".to_string())?;
@@ -309,6 +360,7 @@ fn save_edit(
             model.script_path = new_script_path.clone();
             model.port = new_port;
             model.health_timeout_sec = new_timeout;
+            model.ctx_size = new_ctx_size;
         }
         None => {
             return Err(format!("Model '{}' not found in config.", id));

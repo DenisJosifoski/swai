@@ -35,7 +35,12 @@ pub fn show_preferences_dialog(
         }
     };
 
-    let dialog = PreferencesDialog::new(parent, &config);
+    let active_model_id = process_manager
+        .lock()
+        .ok()
+        .and_then(|pm| pm.get_primary_model_id().map(|s| s.to_string()));
+
+    let dialog = PreferencesDialog::new(parent, &config, active_model_id.as_deref());
     let config_path = Config::resolve_path()
         .unwrap_or_else(|| std::path::PathBuf::from("/nonexistent/config.toml"));
     let parent_clone = parent.clone();

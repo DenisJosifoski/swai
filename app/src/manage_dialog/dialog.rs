@@ -120,6 +120,7 @@ impl ManageModelsDialog {
         let script_path = model.script_path.clone();
         let port = model.port;
         let timeout = model.health_timeout_sec;
+        let ctx_size = model.ctx_size;
         let sender_clone = import_sender.clone();
         // Clone the row and port label so the edit dialog can live-update them
         // after a successful save (set_title / set_text). GTK widget clones are
@@ -132,14 +133,24 @@ impl ManageModelsDialog {
         let parent_clone = std::sync::Arc::clone(parent_win);
 
         edit_btn.connect_clicked(move |_| {
-            // Read the current title and port dynamically so edits to display name
-            // or port are reflected even when re-opening the dialog without closing it.
+            // Read the current title, port, and ctx_size dynamically so edits
+            // are reflected even when re-opening the dialog without closing it.
             let current_name = row_for_dialog.title().to_string();
             let current_port_str = port_label_for_dialog.text().to_string();
             let current_port: u16 = current_port_str
                 .strip_prefix("port ")
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(port);
+
+            let current_ctx = Config::load()
+                .ok()
+                .and_then(|cfg| {
+                    cfg.models
+                        .into_iter()
+                        .find(|m| m.id == model_id)
+                        .map(|m| m.ctx_size)
+                })
+                .unwrap_or(ctx_size);
 
             show_edit_dialog(
                 &parent_clone,
@@ -148,6 +159,7 @@ impl ManageModelsDialog {
                 &script_path,
                 current_port,
                 timeout,
+                current_ctx,
                 &sender_clone,
                 row_for_dialog.clone(),
                 port_label_for_dialog.clone(),

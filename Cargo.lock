@@ -2074,6 +2074,7 @@ dependencies = [
  "dirs",
  "libc",
  "nix 0.29.0",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

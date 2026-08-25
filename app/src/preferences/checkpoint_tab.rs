@@ -19,7 +19,10 @@ pub struct CheckpointWidgets {
 }
 
 /// Build the Checkpoint preferences page.
-pub fn build_checkpoint_tab(config: &Config) -> (PreferencesPage, CheckpointWidgets) {
+pub fn build_checkpoint_tab(
+    config: &Config,
+    active_model_id: Option<&str>,
+) -> (PreferencesPage, CheckpointWidgets) {
     let page = PreferencesPage::new();
     page.set_title("Checkpoint");
 
@@ -31,9 +34,12 @@ pub fn build_checkpoint_tab(config: &Config) -> (PreferencesPage, CheckpointWidg
 
     let enable_switch = add_enable_checkpointing_row(&group, config);
     let summarizer_dropdown = add_summarizer_model_row(&group, config);
-    let threshold_spin = add_compaction_threshold_row(&group, config);
+
+    let (threshold_spin, readout_group) =
+        add_compaction_threshold_controls(&group, config, &summarizer_dropdown, active_model_id);
 
     page.add(&group);
+    page.add(&readout_group);
 
     let widgets = CheckpointWidgets {
         enable_checkpointing_switch: enable_switch,
@@ -94,12 +100,14 @@ pub fn add_summarizer_model_row(parent: &PreferencesGroup, config: &Config) -> D
     dropdown
 }
 
-/// Add a spinbutton row for configuring the compaction trigger threshold.
-///
-/// Range: 50%–85%, default 70%. Step size: 5%.
-/// Displays a live readout of the resulting character budget for the
-/// currently active model.
-fn add_compaction_threshold_row(parent: &PreferencesGroup, config: &Config) -> SpinButton {
+/// Add a slim spinbutton row for the threshold inside the card,
+/// and return an informative readout group placed outside below the card.
+fn add_compaction_threshold_controls(
+    parent: &PreferencesGroup,
+    config: &Config,
+    dropdown: &DropDown,
+    active_model_id: Option<&str>,
+) -> (SpinButton, PreferencesGroup) {
     let current_pct = config.compaction_threshold_pct();
 
     let min = swai_core::compaction::MIN_THRESHOLD_PCT as f64;
@@ -117,37 +125,78 @@ fn add_compaction_threshold_row(parent: &PreferencesGroup, config: &Config) -> S
     spin.set_digits(0);
     spin.set_value(current_pct as f64);
     spin.set_width_chars(6);
+    spin.set_valign(gtk::Align::Center);
 
-    // Build a readout label showing the current budget at this threshold.
-    // We compute it from the active model's context size if known,
-    // otherwise fall back to 64k.
-    let active_ctx = config.models.first().map(|m| m.ctx_size).unwrap_or(65_536);
+    // Build a map of dropdown index -> ctx_size
+    let active_ctx = active_model_id
+        .and_then(|id| config.models.iter().find(|m| m.id == id).map(|m| m.ctx_size))
+        .unwrap_or_else(|| config.models.first().map(|m| m.ctx_size).unwrap_or(65_536));
+
+    let mut model_ctxs: Vec<usize> = vec![active_ctx];
+    for m in &config.models {
+        model_ctxs.push(m.ctx_size);
+    }
+
+    let selected_idx = dropdown.selected() as usize;
+    let initial_ctx = model_ctxs.get(selected_idx).copied().unwrap_or(active_ctx);
 
     let budget =
-        swai_core::compaction::ContextBudget::from_ctx_size_and_threshold(active_ctx, current_pct);
-    let readout = gtk::Label::builder()
-        .label(&budget.summary_display())
-        .use_markup(false)
+        swai_core::compaction::ContextBudget::from_ctx_size_and_threshold(initial_ctx, current_pct);
+
+    // Info group placed outside below the main card
+    let readout_group = PreferencesGroup::new();
+    readout_group.set_title("Active Budget Estimation");
+
+    let readout_label = gtk::Label::builder()
+        .label(&format!(
+            "<span foreground=\"#2dd4f0\">ℹ️</span>  <span alpha=\"80%\">{}</span>",
+            budget.summary_display()
+        ))
+        .use_markup(true)
         .halign(gtk::Align::Start)
         .wrap(true)
-        .max_width_chars(40)
+        .xalign(0.0)
+        .margin_start(6)
+        .margin_top(2)
+        .margin_bottom(6)
         .build();
 
-    // Update the readout whenever the spin value changes.
-    let readout_clone = readout.clone();
-    spin.connect_value_changed(move |spin| {
-        let pct = spin.value() as u8;
-        let b = swai_core::compaction::ContextBudget::from_ctx_size_and_threshold(active_ctx, pct);
-        readout_clone.set_label(&b.summary_display());
+    readout_group.add(&readout_label);
+
+    let spin_for_dd = spin.clone();
+    let readout_clone = readout_label.clone();
+    let model_ctxs_clone = model_ctxs.clone();
+    dropdown.connect_selected_notify(move |dd| {
+        let idx = dd.selected() as usize;
+        let ctx = model_ctxs_clone.get(idx).copied().unwrap_or(65_536);
+        let pct = spin_for_dd.value() as u8;
+        let b = swai_core::compaction::ContextBudget::from_ctx_size_and_threshold(ctx, pct);
+        readout_clone.set_label(&format!(
+            "<span foreground=\"#2dd4f0\">ℹ️</span>  <span alpha=\"80%\">{}</span>",
+            b.summary_display()
+        ));
+    });
+
+    let dd_clone = dropdown.clone();
+    let readout_clone2 = readout_label.clone();
+    let model_ctxs_clone2 = model_ctxs;
+    spin.connect_value_changed(move |s| {
+        let idx = dd_clone.selected() as usize;
+        let ctx = model_ctxs_clone2.get(idx).copied().unwrap_or(65_536);
+        let pct = s.value() as u8;
+        let b = swai_core::compaction::ContextBudget::from_ctx_size_and_threshold(ctx, pct);
+        readout_clone2.set_label(&format!(
+            "<span foreground=\"#2dd4f0\">ℹ️</span>  <span alpha=\"80%\">{}</span>",
+            b.summary_display()
+        ));
     });
 
     let row = ActionRow::builder()
         .title("Compaction Trigger Threshold")
-        .subtitle("Trigger checkpoint summarization when context usage reaches this percentage (50%–85%, default 70%).")
+        .subtitle("Context usage percentage to initiate compaction (50%–85%)")
         .build();
     row.add_suffix(&spin);
-    row.add_suffix(&readout);
 
     parent.add(&row);
-    spin
+    (spin, readout_group)
 }

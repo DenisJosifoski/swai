@@ -3,6 +3,7 @@
 pub mod dialog;
 pub mod edit_dialog;
 pub mod helpers;
+pub mod sync_ctx;
 pub mod sync_port;
 #[cfg(test)]
 mod tests;

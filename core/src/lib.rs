@@ -9,6 +9,7 @@ pub mod compaction;
 pub mod config;
 pub mod council;
 pub mod health_monitor;
+pub mod import_wizard;
 pub mod ipc;
 pub mod process_manager;
 pub mod proxy;
@@ -68,8 +69,17 @@ pub fn run(
     };
 
     // Reconcile — check for already-running models
-    let reconciler = reconciler::Reconciler::new(config.clone());
+    let mut reconciler = reconciler::Reconciler::new(config.clone());
     let reconcile_result = reconciler.reconcile()?;
+
+    // Reconcile ctx_size values from scripts on disk with config.toml.
+    // This handles the case where a user edits the launch script externally
+    // (e.g., to bump context window) without going through SWAI's Edit dialog.
+    let reconciled = reconciler.reconcile_ctx_sizes();
+    if !reconciled.is_empty() {
+        info!("ctx-size reconciliation: {}", reconciled.join(", "));
+    }
+    let config = reconciler.config().clone();
 
     info!("core engine initialized");
     Ok((config, reconcile_result, guard))
