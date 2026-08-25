@@ -59,6 +59,7 @@ pub fn show_preferences_dialog(
                         if let Ok(mut ps) = ps_clone.lock() {
                             ps.enable_checkpointing = enabled;
                             ps.enable_council = new_cfg.enable_council();
+                            ps.compaction_threshold_pct = new_cfg.compaction_threshold_pct();
                         }
                     }
                 }

@@ -195,6 +195,7 @@ auto_restart_on_context_full = true
         // config file directly.
         proxy_state.enable_checkpointing = config.enable_checkpointing();
         proxy_state.enable_council = config.enable_council();
+        proxy_state.compaction_threshold_pct = config.compaction_threshold_pct();
         let proxy_state = Arc::new(std::sync::Mutex::new(proxy_state));
 
         let proxy_server =

@@ -35,6 +35,12 @@ pub struct ProxyState {
     /// requests targeting council models are routed directly to the target
     /// model port with zero debate overhead.
     pub enable_council: bool,
+
+    /// Compaction trigger threshold as a percentage of the model's context window.
+    /// Range: 50% (aggressive) to 85% (retains more history). Default: 70%.
+    /// Updated immediately when the user saves Preferences so the background
+    /// proxy picks up the new value on the very next request.
+    pub compaction_threshold_pct: u8,
 }
 
 impl Default for ProxyState {
@@ -46,6 +52,7 @@ impl Default for ProxyState {
             is_loading: false,
             enable_checkpointing: true,
             enable_council: true,
+            compaction_threshold_pct: crate::compaction::DEFAULT_THRESHOLD_PCT,
         }
     }
 }
@@ -145,5 +152,6 @@ impl ProxyState {
         self.is_loading = false;
         self.enable_checkpointing = true;
         self.enable_council = true;
+        self.compaction_threshold_pct = crate::compaction::DEFAULT_THRESHOLD_PCT;
     }
 }

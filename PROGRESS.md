@@ -1553,3 +1553,40 @@ Implemented a Unix Domain Socket IPC interface so terminal commands (`swai start
 | `app/src/window/dialogs.rs` | 404 |
 | `app/src/main.rs` | 227 |
 
+## Phase 31 — Dynamic Context Scaling Ratio & Compaction Tuning
+
+### What was built
+
+1. **Dynamic Context Budget Calculation (`core/src/compaction/budget.rs`)**:
+   - Implemented `from_ctx_size_and_threshold(ctx_tokens, threshold_pct)` with dynamic formula.
+   - History retention ratio = `threshold_pct * 0.50` (proportional, e.g. 70% threshold → 35% retention).
+   - Tool result truncation = `(ctx_tokens * 4 * 8 / 100).clamp(8_000, 64_000)` (8% of context window).
+   - Threshold input clamped between 50% and 85% (default 70%).
+   - Added `summary_display()` helper for live UI budget readout.
+
+2. **Configuration (`core/src/config/preferences.rs`, `config.rs`)**:
+   - Added `compaction_threshold_pct: u8` to `PreferencesConfig` with `default_compaction_threshold = 70`.
+   - Exposed `config.compaction_threshold_pct() -> u8` on `Config`.
+
+3. **Live Proxy State & Hot Reloading (`core/src/proxy/state.rs`, `app/src/main.rs`, `app/src/window/dialogs.rs`)**:
+   - Added `compaction_threshold_pct: u8` to `ProxyState`.
+   - Synced on app startup and hot-reloaded dynamically upon preferences save.
+
+4. **Anthropic Proxy Request Handler (`core/src/proxy/anthropic.rs`)**:
+   - Reads `compaction_threshold_pct` from `ProxyState` on each request.
+   - Calls `ContextBudget::from_ctx_size_and_threshold(ctx_size, threshold_pct)` for real-time model-adaptive compaction budgeting.
+
+5. **Preferences UI (`app/src/preferences/checkpoint_tab.rs`, `dialog.rs`, `types.rs`)**:
+   - Added `Compaction Trigger Threshold` spinbutton (50%–85%, step 5%).
+   - Added live readout label showing character trigger and history retention budgets for the active model.
+   - Wired seamlessly into `PreferencesValues` and dialog save logic.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `cargo test --workspace --lib -- --test-threads=1`: 276/276 core unit tests passed (0 failures)
+- `cargo test -p swai -- --test-threads=1`: 43/43 app unit tests passed (0 failures)
+- `integration.rs`: 4/4 passed (0 failures)
+- Total: 323/323 unit and integration tests passed (0 failures)
+- All modified files strictly under 450 lines
+
+

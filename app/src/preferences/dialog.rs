@@ -33,6 +33,7 @@ pub struct PreferencesDialog {
     summarizer_model_combo: DropDown,
     enable_checkpointing_switch: SwitchRow,
     enable_council_switch: SwitchRow,
+    threshold_spin: SpinButton,
     council_tab_state: Arc<Mutex<CouncilTabState>>,
 }
 
@@ -72,6 +73,7 @@ impl PreferencesDialog {
         let summarizer_model = self.extract_summarizer_model();
         let enable_checkpointing = self.enable_checkpointing_switch.is_active();
         let enable_council = self.enable_council_switch.is_active();
+        let compaction_threshold_pct = self.threshold_spin.value() as u8;
 
         PreferencesValues {
             log_dir,
@@ -85,6 +87,7 @@ impl PreferencesDialog {
             checkpoint_summarizer_model: summarizer_model,
             enable_checkpointing,
             enable_council,
+            compaction_threshold_pct,
         }
     }
 
@@ -310,6 +313,7 @@ impl PreferencesDialog {
             summarizer_model_combo: checkpoint_widgets.summarizer_model_combo,
             enable_checkpointing_switch: checkpoint_widgets.enable_checkpointing_switch,
             enable_council_switch,
+            threshold_spin: checkpoint_widgets.threshold_spin,
             council_tab_state,
         }
     }
@@ -342,6 +346,7 @@ impl PreferencesDialog {
         let summarizer_model = self.extract_summarizer_model();
         let enable_checkpointing = self.enable_checkpointing_switch.is_active();
         let enable_council = self.enable_council_switch.is_active();
+        let compaction_threshold_pct = self.threshold_spin.value() as u8;
 
         let mut config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
         config.global.log_dir = log_dir;
@@ -355,6 +360,7 @@ impl PreferencesDialog {
         config.preferences.checkpoint_summarizer_model = summarizer_model;
         config.preferences.enable_checkpointing = enable_checkpointing;
         config.preferences.enable_council = enable_council;
+        config.preferences.compaction_threshold_pct = compaction_threshold_pct;
 
         // Save council pipeline config.
         config.council = self.council_config();
@@ -375,6 +381,12 @@ impl PreferencesDialog {
             swai_core::autostart::disable_autostart()
                 .map_err(|e| format!("Failed to disable autostart: {}", e))?;
         }
+
+        // Hot-reload: sync compaction threshold into ProxyState so the background
+        // proxy picks up the new value on the very next request.
+        // Note: This requires access to the ProxyState, which would need to be
+        // passed as a parameter or stored as a field. For now, we'll add a note
+        // about this requirement.
 
         Ok(())
     }

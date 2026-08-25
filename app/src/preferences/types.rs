@@ -18,4 +18,8 @@ pub struct PreferencesValues {
     pub enable_checkpointing: bool,
 
     pub enable_council: bool,
+
+    /// Compaction trigger threshold percentage (50-85, default 70).
+    #[allow(dead_code)]
+    pub compaction_threshold_pct: u8,
 }

@@ -179,6 +179,13 @@ impl Config {
         self.preferences.enable_council
     }
 
+    /// Get the effective compaction trigger threshold percentage.
+    ///
+    /// Range: 50% (aggressive) to 85% (retains more history). Default: 70%.
+    pub fn compaction_threshold_pct(&self) -> u8 {
+        self.preferences.compaction_threshold_pct
+    }
+
     /// Get all configured models as a list of (id, name) pairs.
     ///
     /// Used by the Preferences UI to populate dropdown selectors that let

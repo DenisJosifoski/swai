@@ -28,6 +28,12 @@ pub struct PreferencesConfig {
 
     #[serde(default = "default_enable_council")]
     pub enable_council: bool,
+
+    /// Compaction trigger threshold as a percentage of the model's context window.
+    /// Range: 50% (aggressive compaction) to 85% (retains more history).
+    /// Default: 70%.
+    #[serde(default = "default_compaction_threshold_pct")]
+    pub compaction_threshold_pct: u8,
 }
 
 impl Default for PreferencesConfig {
@@ -41,6 +47,7 @@ impl Default for PreferencesConfig {
             checkpoint_summarizer_model: None,
             enable_checkpointing: true,
             enable_council: true,
+            compaction_threshold_pct: crate::compaction::DEFAULT_THRESHOLD_PCT,
         }
     }
 }
@@ -71,6 +78,10 @@ fn default_enable_checkpointing() -> bool {
 
 fn default_enable_council() -> bool {
     true
+}
+
+fn default_compaction_threshold_pct() -> u8 {
+    crate::compaction::DEFAULT_THRESHOLD_PCT
 }
 
 /// Global settings section.

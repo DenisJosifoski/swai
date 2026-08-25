@@ -47,7 +47,15 @@ pub fn process_anthropic_payload(
         .ok()
         .map(|s| s.ctx_size_for_port(target_port))
         .unwrap_or(65_536);
-    let budget = crate::compaction::ContextBudget::from_ctx_size(ctx_size);
+
+    // Read the user-configurable compaction threshold from proxy state
+    let threshold_pct = state
+        .lock()
+        .ok()
+        .map(|s| s.compaction_threshold_pct)
+        .unwrap_or(crate::compaction::DEFAULT_THRESHOLD_PCT);
+
+    let budget = crate::compaction::ContextBudget::from_ctx_size_and_threshold(ctx_size, threshold_pct);
 
     // Check if checkpointing is enabled. When disabled, bypass loop detection
     // and checkpoint persistence entirely so the proxy acts as a transparent

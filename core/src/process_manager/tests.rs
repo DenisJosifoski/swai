@@ -44,6 +44,7 @@ mod tests {
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
                 enable_council: true,
+                compaction_threshold_pct: 70,
             },
             council: CouncilPipelineConfig::default(),
         };

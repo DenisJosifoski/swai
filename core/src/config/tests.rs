@@ -147,6 +147,7 @@ mod tests {
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
                 enable_council: true,
+                compaction_threshold_pct: 70,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -206,6 +207,7 @@ auto_restart_on_context_full = true
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
                 enable_council: true,
+                compaction_threshold_pct: 70,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -262,6 +264,7 @@ auto_restart_on_context_full = true
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
                 enable_council: true,
+                compaction_threshold_pct: 70,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -319,6 +322,7 @@ auto_restart_on_context_full = true
                 checkpoint_summarizer_model: Some("ornith-35b".to_string()),
                 enable_checkpointing: true,
                 enable_council: true,
+                compaction_threshold_pct: 70,
             },
             council: CouncilPipelineConfig::default(),
         };
@@ -395,6 +399,7 @@ auto_restart_on_context_full = true
                 checkpoint_summarizer_model: None,
                 enable_checkpointing: true,
                 enable_council: false,
+                compaction_threshold_pct: 70,
             },
             council: CouncilPipelineConfig::default(),
         };
