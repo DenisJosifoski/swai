@@ -8,11 +8,12 @@ use crate::process_manager::{ModelState, ProcessError};
 use std::time::Duration;
 use tracing::{debug, info};
 
-/// Build an HTTP client with a timeout to prevent indefinite hangs on
-/// unresponsive or hung listeners during health monitoring.
+/// Build an HTTP client with a fast connect timeout so probing an unopened
+/// port fails in milliseconds rather than hanging the health monitor loop.
 fn http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(5))
+        .connect_timeout(Duration::from_millis(250))
+        .timeout(Duration::from_millis(750))
         .build()
         .expect("reqwest client build failed")
 }
@@ -69,8 +70,8 @@ impl HealthMonitor {
                 break;
             }
 
-            // Wait 1 second before next poll
-            std::thread::sleep(Duration::from_secs(1));
+            // Wait 150ms before next poll for snappy state detection
+            std::thread::sleep(Duration::from_millis(150));
         }
 
         info!("model health state: {:?}", state);
@@ -126,7 +127,7 @@ impl HealthMonitor {
                 break;
             }
 
-            std::thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(150));
         }
     }
 

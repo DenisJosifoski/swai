@@ -215,8 +215,29 @@ auto_restart_on_context_full = true
         let main_window_rc = Rc::new(main_window);
         let proxy_server_rc = Rc::new(proxy_server);
 
+        // Hook SIGINT (Ctrl+C) from terminal
+        let main_window_for_sigint = Rc::clone(&main_window_rc);
+        let app_for_sigint = app.clone();
+        glib::unix_signal_add_local(2, move || {
+            tracing::info!("Received SIGINT (Ctrl+C) — stopping all active models");
+            main_window_for_sigint.quit();
+            app_for_sigint.quit();
+            glib::ControlFlow::Break
+        });
+
+        // Hook SIGTERM
+        let main_window_for_sigterm = Rc::clone(&main_window_rc);
+        let app_for_sigterm = app.clone();
+        glib::unix_signal_add_local(15, move || {
+            tracing::info!("Received SIGTERM — stopping all active models");
+            main_window_for_sigterm.quit();
+            app_for_sigterm.quit();
+            glib::ControlFlow::Break
+        });
+
+        let main_window_for_shutdown = Rc::clone(&main_window_rc);
         app.connect_shutdown(move |_| {
-            drop(Rc::clone(&main_window_rc));
+            main_window_for_shutdown.quit();
             if let Some(ref _server) = *proxy_server_rc {
                 let _server_rc = Rc::clone(&proxy_server_rc);
                 drop(_server_rc);

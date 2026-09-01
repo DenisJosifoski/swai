@@ -1,11 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::config::Config;
-    use crate::process_manager::ProcessManager;
-    use crate::proxy::ProxyState;
     use crate::summarizer::*;
-    use serde_json::Value;
-    use std::sync::{Arc, Mutex};
 
     // ─── parse_summarizer_response tests ────────────────────────────────────
 

@@ -29,6 +29,9 @@ pub fn process_anthropic_payload(
     state: &Arc<Mutex<ProxyState>>,
     target_port: u16,
 ) {
+    // Sanitize non-first system messages to prevent llama-server Jinja 500 crashes
+    sanitize_messages_for_jinja(json_val);
+
     let mut model_id = String::new();
     if let Some(obj) = json_val.as_object_mut() {
         if let Some(m) = obj.get("model").and_then(|v| v.as_str()) {
@@ -260,5 +263,25 @@ fn persist_checkpoint(
 
     if let Some(checkpoint_text) = session.format_for_injection() {
         crate::compaction::inject_checkpoint_into_payload(json_val, &checkpoint_text);
+    }
+}
+
+/// Sanitize messages array to prevent Jinja template crashes like
+/// `System message must be at the beginning`.
+///
+/// If any `role: "system"` message is present after index 0 in `messages`,
+/// it converts its role to `"user"` so `llama-server`'s strict Jinja template
+/// doesn't reject the payload with an HTTP 500 error.
+pub fn sanitize_messages_for_jinja(json_val: &mut serde_json::Value) {
+    if let Some(messages) = json_val.get_mut("messages").and_then(|m| m.as_array_mut()) {
+        for (i, msg) in messages.iter_mut().enumerate() {
+            if i > 0 {
+                if let Some(role) = msg.get_mut("role") {
+                    if role == "system" {
+                        *role = serde_json::Value::String("user".to_string());
+                    }
+                }
+            }
+        }
     }
 }

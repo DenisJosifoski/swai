@@ -179,6 +179,13 @@ pub fn append_model_to_config_at(
     config_path: &std::path::Path,
     model: &ImportedModel,
 ) -> Result<(), String> {
+    if !model.script_path.exists() {
+        return Err(format!(
+            "Script file not found: {}",
+            model.script_path.display()
+        ));
+    }
+
     let content = std::fs::read_to_string(config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 

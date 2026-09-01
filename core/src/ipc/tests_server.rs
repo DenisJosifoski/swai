@@ -3,9 +3,8 @@ mod tests {
     use crate::config::{Config, GlobalSettings, ModelConfig, PreferencesConfig};
     use crate::council::CouncilPipelineConfig;
     use crate::ipc::*;
-    use crate::process_manager::ProcessManager;
     use crate::proxy::ProxyState;
-    use std::io::{BufRead, Write};
+    use std::io::BufRead;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::sync::{Arc, Mutex};
     use tempfile::TempDir;
@@ -72,6 +71,17 @@ mod tests {
 
     // -- Model cycling tests --------------------------------------------------
 
+    fn make_model_cfg(id: &str, port: u16) -> ModelConfig {
+        ModelConfig {
+            id: id.into(),
+            name: id.to_uppercase(),
+            script_path: "/tmp/x".into(),
+            port,
+            health_timeout_sec: 5,
+            ctx_size: 65_536,
+        }
+    }
+
     fn make_test_state(models: Vec<ModelConfig>) -> IpcState {
         let config = Config {
             schema_version: 1,
@@ -125,17 +135,8 @@ mod tests {
             council: CouncilPipelineConfig::default(),
         };
         let mut pm = crate::process_manager::ProcessManager::new(config.clone());
-        // Find the running model's port.
-        let port = models
-            .iter()
-            .find(|m| m.id == running_id)
-            .map(|m| m.port)
-            .unwrap_or(0);
-        let name = models
-            .iter()
-            .find(|m| m.id == running_id)
-            .map(|m| m.name.clone())
-            .unwrap_or_default();
+        let port = models.iter().find(|m| m.id == running_id).map(|m| m.port).unwrap_or(0);
+        let name = models.iter().find(|m| m.id == running_id).map(|m| m.name.clone()).unwrap_or_default();
         pm.set_running_model(make_running_model(running_id, &name, port));
         IpcState {
             process_manager: std::sync::Mutex::new(pm),
@@ -146,193 +147,47 @@ mod tests {
 
     #[test]
     fn test_resolve_cycle_next_no_running_wraps_to_first() {
-        let state = make_test_state(vec![
-            ModelConfig {
-                id: "m1".into(),
-                name: "M1".into(),
-                script_path: "/tmp/x".into(),
-                port: 8001,
-                health_timeout_sec: 5,
-                ctx_size: 65_536,
-            },
-            ModelConfig {
-                id: "m2".into(),
-                name: "M2".into(),
-                script_path: "/tmp/x".into(),
-                port: 8002,
-                health_timeout_sec: 5,
-                ctx_size: 65_536,
-            },
-        ]);
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, None, "next"),
-            Some("m1".to_string())
-        );
+        let state = make_test_state(vec![make_model_cfg("m1", 8001), make_model_cfg("m2", 8002)]);
+        assert_eq!(resolve_cycle_model_id(&state.config, None, "next"), Some("m1".to_string()));
     }
 
     #[test]
     fn test_resolve_cycle_prev_no_running_wraps_to_last() {
-        let state = make_test_state(vec![
-            ModelConfig {
-                id: "m1".into(),
-                name: "M1".into(),
-                script_path: "/tmp/x".into(),
-                port: 8001,
-                health_timeout_sec: 5,
-                ctx_size: 65_536,
-            },
-            ModelConfig {
-                id: "m2".into(),
-                name: "M2".into(),
-                script_path: "/tmp/x".into(),
-                port: 8002,
-                health_timeout_sec: 5,
-                ctx_size: 65_536,
-            },
-        ]);
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, None, "prev"),
-            Some("m2".to_string())
-        );
+        let state = make_test_state(vec![make_model_cfg("m1", 8001), make_model_cfg("m2", 8002)]);
+        assert_eq!(resolve_cycle_model_id(&state.config, None, "prev"), Some("m2".to_string()));
     }
 
     #[test]
     fn test_resolve_cycle_next_advances_index() {
-        let state = make_state_with_running(
-            vec![
-                ModelConfig {
-                    id: "m1".into(),
-                    name: "M1".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8001,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-                ModelConfig {
-                    id: "m2".into(),
-                    name: "M2".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8002,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-                ModelConfig {
-                    id: "m3".into(),
-                    name: "M3".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8003,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-            ],
-            "m1",
-        );
-        let pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"),
-            Some("m2".to_string())
-        );
+        let state = make_state_with_running(vec![make_model_cfg("m1", 8001), make_model_cfg("m2", 8002), make_model_cfg("m3", 8003)], "m1");
+        let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"), Some("m2".to_string()));
     }
 
     #[test]
     fn test_resolve_cycle_prev_wraps_from_first_to_last() {
-        let state = make_state_with_running(
-            vec![
-                ModelConfig {
-                    id: "m1".into(),
-                    name: "M1".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8001,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-                ModelConfig {
-                    id: "m2".into(),
-                    name: "M2".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8002,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-            ],
-            "m1",
-        );
-        let pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "prev"),
-            Some("m2".to_string())
-        );
+        let state = make_state_with_running(vec![make_model_cfg("m1", 8001), make_model_cfg("m2", 8002)], "m1");
+        let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "prev"), Some("m2".to_string()));
     }
 
     #[test]
     fn test_resolve_cycle_next_wraps_from_last_to_first() {
-        let state = make_state_with_running(
-            vec![
-                ModelConfig {
-                    id: "m1".into(),
-                    name: "M1".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8001,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-                ModelConfig {
-                    id: "m2".into(),
-                    name: "M2".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8002,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-            ],
-            "m2",
-        );
-        let pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"),
-            Some("m1".to_string())
-        );
+        let state = make_state_with_running(vec![make_model_cfg("m1", 8001), make_model_cfg("m2", 8002)], "m2");
+        let pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(resolve_cycle_model_id(&state.config, pm.get_primary_model_id(), "next"), Some("m1".to_string()));
     }
 
     #[test]
     fn test_resolve_literal_model_id_returns_id() {
-        let state = make_test_state(vec![ModelConfig {
-            id: "m1".into(),
-            name: "M1".into(),
-            script_path: "/tmp/x".into(),
-            port: 8001,
-            health_timeout_sec: 5,
-            ctx_size: 65_536,
-        }]);
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, None, "m1"),
-            Some("m1".to_string())
-        );
+        let state = make_test_state(vec![make_model_cfg("m1", 8001)]);
+        assert_eq!(resolve_cycle_model_id(&state.config, None, "m1"), Some("m1".to_string()));
     }
 
     #[test]
     fn test_resolve_unknown_literal_returns_none() {
-        let state = make_test_state(vec![ModelConfig {
-            id: "m1".into(),
-            name: "M1".into(),
-            script_path: "/tmp/x".into(),
-            port: 8001,
-            health_timeout_sec: 5,
-            ctx_size: 65_536,
-        }]);
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, None, "nonexistent"),
-            None
-        );
+        let state = make_test_state(vec![make_model_cfg("m1", 8001)]);
+        assert_eq!(resolve_cycle_model_id(&state.config, None, "nonexistent"), None);
     }
 
     #[test]
@@ -344,22 +199,9 @@ mod tests {
 
     #[test]
     fn test_dispatch_status_no_active_model() {
-        let state = make_test_state(vec![ModelConfig {
-            id: "m1".into(),
-            name: "M1".into(),
-            script_path: "/tmp/x".into(),
-            port: 8001,
-            health_timeout_sec: 5,
-            ctx_size: 65_536,
-        }]);
-        let req = ActionRequest {
-            action: "status".to_string(),
-            data: None,
-        };
-        let mut pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let state = make_test_state(vec![make_model_cfg("m1", 8001)]);
+        let req = ActionRequest { action: "status".to_string(), data: None };
+        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         assert_eq!(resp.message, "No active model");
@@ -367,101 +209,31 @@ mod tests {
 
     #[test]
     fn test_dispatch_switch_with_next_cycling() {
-        let state = make_state_with_running(
-            vec![
-                ModelConfig {
-                    id: "m1".into(),
-                    name: "M1".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8001,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-                ModelConfig {
-                    id: "m2".into(),
-                    name: "M2".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8002,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-            ],
-            "m1",
-        );
-
-        let req = ActionRequest {
-            action: "switch".to_string(),
-            data: Some(serde_json::json!({"model_id": "next"})),
-        };
-        let mut pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let state = make_state_with_running(vec![make_model_cfg("m1", 8001), make_model_cfg("m2", 8002)], "m1");
+        let req = ActionRequest { action: "switch".to_string(), data: Some(serde_json::json!({"model_id": "next"})) };
+        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         assert!(resp.message.contains("Switched to 'M2'"));
-
-        // Verify that resolve_cycle_model_id resolved to m2.
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, Some("m1"), "next"),
-            Some("m2".to_string())
-        );
+        assert_eq!(resolve_cycle_model_id(&state.config, Some("m1"), "next"), Some("m2".to_string()));
     }
 
     #[test]
     fn test_dispatch_switch_with_prev_cycling() {
-        let state = make_state_with_running(
-            vec![
-                ModelConfig {
-                    id: "m1".into(),
-                    name: "M1".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8001,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-                ModelConfig {
-                    id: "m2".into(),
-                    name: "M2".into(),
-                    script_path: "/tmp/x".into(),
-                    port: 8002,
-                    health_timeout_sec: 5,
-                    ctx_size: 65_536,
-                },
-            ],
-            "m2",
-        );
-
-        let req = ActionRequest {
-            action: "switch".to_string(),
-            data: Some(serde_json::json!({"model_id": "prev"})),
-        };
-        let mut pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let state = make_state_with_running(vec![make_model_cfg("m1", 8001), make_model_cfg("m2", 8002)], "m2");
+        let req = ActionRequest { action: "switch".to_string(), data: Some(serde_json::json!({"model_id": "prev"})) };
+        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         assert!(resp.message.contains("Switched to 'M1'"));
-
-        // Verify that resolve_cycle_model_id resolved to m1.
-        assert_eq!(
-            resolve_cycle_model_id(&state.config, Some("m2"), "prev"),
-            Some("m1".to_string())
-        );
+        assert_eq!(resolve_cycle_model_id(&state.config, Some("m2"), "prev"), Some("m1".to_string()));
     }
 
     #[test]
     fn test_dispatch_unknown_action_returns_error() {
         let state = make_test_state(vec![]);
-        let req = ActionRequest {
-            action: "foobar".to_string(),
-            data: None,
-        };
-        let mut pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let req = ActionRequest { action: "foobar".to_string(), data: None };
+        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "error");
         assert!(resp.message.contains("unknown action"));
@@ -470,14 +242,8 @@ mod tests {
     #[test]
     fn test_dispatch_switch_missing_model_id_returns_error() {
         let state = make_test_state(vec![]);
-        let req = ActionRequest {
-            action: "switch".to_string(),
-            data: Some(serde_json::json!({})),
-        };
-        let mut pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let req = ActionRequest { action: "switch".to_string(), data: Some(serde_json::json!({})) };
+        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "error");
         assert!(resp.message.contains("missing model_id"));
@@ -486,14 +252,8 @@ mod tests {
     #[test]
     fn test_dispatch_switch_nonexistent_model_returns_error() {
         let state = make_test_state(vec![]);
-        let req = ActionRequest {
-            action: "switch".to_string(),
-            data: Some(serde_json::json!({"model_id": "ghost"})),
-        };
-        let mut pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let req = ActionRequest { action: "switch".to_string(), data: Some(serde_json::json!({"model_id": "ghost"})) };
+        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "error");
         assert!(resp.message.contains("not found"));
@@ -501,22 +261,9 @@ mod tests {
 
     #[test]
     fn test_dispatch_list_returns_models() {
-        let state = make_test_state(vec![ModelConfig {
-            id: "m1".into(),
-            name: "M1".into(),
-            script_path: "/tmp/x".into(),
-            port: 8001,
-            health_timeout_sec: 5,
-            ctx_size: 65_536,
-        }]);
-        let req = ActionRequest {
-            action: "list".to_string(),
-            data: None,
-        };
-        let mut pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let state = make_test_state(vec![make_model_cfg("m1", 8001)]);
+        let req = ActionRequest { action: "list".to_string(), data: None };
+        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
         let data = resp.data.unwrap();
@@ -528,22 +275,14 @@ mod tests {
     #[test]
     fn test_dispatch_stop_clears_proxy() {
         let state = make_test_state(vec![]);
-        // Set proxy state to a target.
         {
             let mut ps = state.proxy_state.lock().unwrap_or_else(|e| e.into_inner());
             ps.set_target(8001);
         }
-        let req = ActionRequest {
-            action: "stop".to_string(),
-            data: None,
-        };
-        let mut pm = state
-            .process_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let req = ActionRequest { action: "stop".to_string(), data: None };
+        let mut pm = state.process_manager.lock().unwrap_or_else(|e| e.into_inner());
         let resp = dispatch_action(req, &mut pm, &state);
         assert_eq!(resp.status, "ok");
-        // Proxy should be cleared.
         let ps = state.proxy_state.lock().unwrap_or_else(|e| e.into_inner());
         assert!(ps.primary_port.is_none());
         assert!(ps.active_models.is_empty());

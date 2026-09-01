@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
     use crate::compaction::*;
-    use crate::compaction::*;
-    use crate::compaction::*;
     use serde_json::Value;
 
     #[test]

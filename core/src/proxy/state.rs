@@ -41,6 +41,29 @@ pub struct ProxyState {
     /// Updated immediately when the user saves Preferences so the background
     /// proxy picks up the new value on the very next request.
     pub compaction_threshold_pct: u8,
+
+    /// Telemetry data from the latest Council pipeline execution.
+    pub last_council_telemetry: Option<CouncilTelemetryData>,
+}
+
+/// Telemetry metrics for an individual stage in a council debate.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub struct CouncilStageTelemetry {
+    pub stage_name: String,
+    pub model_id: String,
+    pub output_tokens: usize,
+    pub duration_sec: f64,
+    pub speed_tokens_sec: f64,
+}
+
+/// Telemetry data for a complete council pipeline turn.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub struct CouncilTelemetryData {
+    pub total_duration_sec: f64,
+    pub total_tokens: usize,
+    pub is_processing: bool,
+    pub current_stage: Option<String>,
+    pub stages: Vec<CouncilStageTelemetry>,
 }
 
 impl Default for ProxyState {
@@ -53,6 +76,7 @@ impl Default for ProxyState {
             enable_checkpointing: true,
             enable_council: true,
             compaction_threshold_pct: crate::compaction::DEFAULT_THRESHOLD_PCT,
+            last_council_telemetry: None,
         }
     }
 }

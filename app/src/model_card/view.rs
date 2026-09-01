@@ -24,7 +24,11 @@ pub struct ModelCard {
     /// Status text label.
     status_label: Label,
     /// Live speed label (⚡ 41.5 tok/s).
-    speed_label: Label,
+    pub(crate) speed_label: Label,
+    /// Live prompt speed label (📥 450.2 p-tok/s).
+    pub(crate) prompt_speed_label: Label,
+    /// Live stopwatch label (⏱ 4.2s).
+    pub(crate) stopwatch_label: Label,
     /// Context progress bar (4px thin bar).
     context_bar: ProgressBar,
     /// Context usage label below the progress bar.
@@ -81,7 +85,12 @@ impl ModelCard {
 
         // Status text
         let status_label = Label::new(Some("Stopped"));
-        status_label.set_css_classes(&["dim-label", "caption"]);
+        if !config.script_path.exists() {
+            status_label.set_css_classes(&["caption"]);
+            status_label.set_markup("<span foreground='#f66151'>⚠️ Script not found</span>");
+        } else {
+            status_label.set_css_classes(&["dim-label", "caption"]);
+        }
         status_label.set_halign(gtk::Align::Start);
         status_label.set_valign(gtk::Align::Center);
 
@@ -91,6 +100,20 @@ impl ModelCard {
         speed_label.set_halign(gtk::Align::Start);
         speed_label.set_valign(gtk::Align::Center);
         speed_label.set_visible(false); // hidden by default
+
+        // Prompt speed label (📥 450.2 p-tok/s) — hidden until model is Ready.
+        let prompt_speed_label = Label::new(Some(""));
+        prompt_speed_label.set_css_classes(&["dim-label", "caption"]);
+        prompt_speed_label.set_halign(gtk::Align::Start);
+        prompt_speed_label.set_valign(gtk::Align::Center);
+        prompt_speed_label.set_visible(false); // hidden by default
+
+        // Stopwatch label (⏱ 4.2s) — hidden until model is Ready.
+        let stopwatch_label = Label::new(Some(""));
+        stopwatch_label.set_css_classes(&["dim-label", "caption"]);
+        stopwatch_label.set_halign(gtk::Align::Start);
+        stopwatch_label.set_valign(gtk::Align::Center);
+        stopwatch_label.set_visible(false); // hidden by default
 
         // Controls (switch + restart + logs)
         let controls = GtkBox::new(Orientation::Horizontal, 4);
@@ -120,6 +143,8 @@ impl ModelCard {
 
         right_side.append(&status_label);
         right_side.append(&speed_label);
+        right_side.append(&prompt_speed_label);
+        right_side.append(&stopwatch_label);
         right_side.append(&controls);
 
         top_row.append(&left_vbox);
@@ -151,6 +176,8 @@ impl ModelCard {
             switch,
             status_label,
             speed_label,
+            prompt_speed_label,
+            stopwatch_label,
             context_bar,
             context_label,
             restart_button,
@@ -231,9 +258,11 @@ impl ModelCard {
             self.status_label.set_css_classes(&["dim-label", "caption"]);
         }
 
-        // Clear speed label when not Ready (transitional states don't have live metrics).
+        // Clear speed labels when not Ready (transitional states don't have live metrics).
         if !matches!(&new_state, CardState::Ready) {
             self.clear_speed();
+            self.clear_prompt_speed();
+            self.clear_stopwatch();
         }
         if matches!(&new_state, CardState::Stopped) {
             self.clear_context();
@@ -357,35 +386,6 @@ impl ModelCard {
         *self.polling_state.borrow_mut() = PollingState::Inactive;
         self.context_bar.set_fraction(0.0);
         self.context_label.set_text("");
-        self.unblock_signals();
-    }
-
-    /// Set the live generation speed label (e.g., "⚡ 41.5 tok/s").
-    ///
-    /// Called from the main thread when a new /slots response includes
-    /// predicted_per_second. The label is shown only when the model is Ready.
-    pub fn set_speed(&self, predicted_per_second: f64) {
-        self.block_signals();
-
-        if predicted_per_second > 0.0 {
-            let text = format!("⚡ {:.1} tok/s", predicted_per_second);
-            self.speed_label.set_text(&text);
-            self.speed_label
-                .set_css_classes(&["caption", "accent-label"]);
-            self.speed_label.set_visible(true);
-        } else {
-            self.clear_speed();
-        }
-
-        self.unblock_signals();
-    }
-
-    /// Clear the speed label (used when model stops or enters transitional state).
-    pub fn clear_speed(&self) {
-        self.block_signals();
-        self.speed_label.set_text("");
-        self.speed_label.set_css_classes(&["dim-label", "caption"]);
-        self.speed_label.set_visible(false);
         self.unblock_signals();
     }
 

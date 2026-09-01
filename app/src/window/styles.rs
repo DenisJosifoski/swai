@@ -222,6 +222,66 @@ pub const CSS: &str = r#"
         opacity: 0.65;
     }
 
+    /* ── Speed & Stopwatch Labels ────────────────────────── */
+    .speed-label {
+        color: #2dd4f0;
+        font-weight: bold;
+    }
+
+    .prompt-speed-label {
+        color: #94a3b8;
+        font-weight: normal;
+    }
+
+    .stopwatch-label {
+        color: #64748b;
+        font-weight: normal;
+    }
+
+    /* ── Bottom Fixed Deck Cards ────────────────────────────── */
+    .bottom-deck-card {
+        background-color: alpha(@theme_fg_color, 0.05);
+        border: 1px solid alpha(@theme_fg_color, 0.10);
+        border-radius: 0px;
+        padding: 10px 14px;
+    }
+
+    .bottom-deck-btn {
+        background-color: alpha(@theme_fg_color, 0.06);
+        border: 1px solid alpha(#2dd4f0, 0.35);
+        border-radius: 0px;
+        color: #2dd4f0;
+        font-weight: bold;
+        font-size: 9pt;
+        padding: 4px 10px;
+    }
+
+    .bottom-deck-btn:hover {
+        background-color: alpha(#2dd4f0, 0.15);
+        border-color: #2dd4f0;
+    }
+
+    .model-pill {
+        background-color: alpha(@theme_fg_color, 0.06);
+        border: 1px solid alpha(@theme_fg_color, 0.12);
+        border-radius: 0px;
+        padding: 2px 8px;
+        font-size: 8.5pt;
+        color: #94a3b8;
+    }
+
+    .model-pill:hover {
+        background-color: alpha(@theme_fg_color, 0.10);
+        color: @theme_fg_color;
+    }
+
+    .model-pill-active {
+        background-color: alpha(#2dd4f0, 0.15);
+        border: 1px solid #2dd4f0;
+        color: #2dd4f0;
+        font-weight: bold;
+    }
+
     /* ── Context meter: subtle rounded progress bar ────────────── */
     .context-meter {
         border-radius: 4px;

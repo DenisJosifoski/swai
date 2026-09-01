@@ -51,3 +51,15 @@ impl PollingState {
         !matches!(self, Self::Inactive)
     }
 }
+
+/// Live speed metrics for a model card.
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct SpeedMetrics {
+    /// Generation speed (predicted_per_second) in tok/s.
+    pub predicted_per_second: f64,
+    /// Prompt evaluation speed (prompt_per_second) in p-tok/s.
+    pub prompt_per_second: f64,
+    /// Live elapsed duration in seconds. `None` when no active request.
+    pub elapsed_duration_sec: Option<f64>,
+}

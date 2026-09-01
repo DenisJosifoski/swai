@@ -146,7 +146,7 @@ pub fn wire_card_handlers(
                         Ok(g) => g,
                         Err(_) => return,
                     };
-                    let result = pm_lock.stop_model(&bg_model_id, false);
+                    let result = pm_lock.stop_model(&bg_model_id, true);
                     let is_ok = result.is_ok();
                     let _ = sender_thread.send(ChannelMessage::StopCompleted {
                         running_id: bg_model_id,
@@ -218,7 +218,7 @@ pub fn wire_card_handlers(
                     };
 
                     // Stop the model regardless of whether it's primary or secondary.
-                    let _ = pm_lock.stop_model(&bg_model_id, false);
+                    let _ = pm_lock.stop_model(&bg_model_id, true);
                     std::thread::sleep(std::time::Duration::from_millis(500));
 
                     pm_lock.start_model(&bg_model_id)

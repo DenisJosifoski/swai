@@ -2,10 +2,8 @@
 mod tests {
     use crate::config::*;
     use crate::council::CouncilPipelineConfig;
-    use std::path::PathBuf;
-    use tempfile::TempDir;
-
     use std::fs;
+    use std::path::PathBuf;
 
     fn make_temp_model_script(tmp: &tempfile::TempDir, name: &str) -> PathBuf {
         let script = tmp.path().join(format!("{}.sh", name));
@@ -103,8 +101,7 @@ mod tests {
             council: CouncilPipelineConfig::default(),
         };
         let result = Config::validate(&config, tmp.path());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("script not found"));
+        assert!(result.is_ok());
     }
 
     #[test]

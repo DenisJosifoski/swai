@@ -18,7 +18,7 @@ use crate::tray::{TrayAction, WindowAction};
 
 use super::card_wiring::wire_card_handlers;
 use super::footer::reorder_card_container;
-use super::poller::notify;
+use super::watchdog::notify;
 use super::types::{ChannelMessage, ImportMessage, SlotUpdate};
 
 pub struct TimeoutContext {
@@ -39,6 +39,7 @@ pub struct TimeoutContext {
     pub tray_receiver: Receiver<TrayAction>,
     pub quit_receiver: Receiver<()>,
     pub import_receiver: Receiver<ImportMessage>,
+    pub bottom_deck: super::bottom_deck::BottomDeck,
 }
 
 pub fn attach_timeout_handler(ctx: TimeoutContext) {
@@ -59,6 +60,7 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
     let tray_receiver = ctx.tray_receiver;
     let quit_receiver = ctx.quit_receiver;
     let import_receiver = ctx.import_receiver;
+    let bottom_deck = ctx.bottom_deck;
 
     let pm_for_import = Arc::clone(&pm_timeout);
     let proxy_state_for_import = Rc::new(proxy_state.clone());
@@ -141,6 +143,7 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                     }
                 }
                 ChannelMessage::StopCompleted { running_id, result } => {
+                    bottom_deck.remove_model(&running_id);
                     for c in cards_borrow.iter_mut() {
                         if c.config().id == running_id {
                             match &result {
@@ -252,12 +255,26 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
         }
 
         while let Ok(update) = slot_receiver.try_recv() {
+            bottom_deck.handle_slot_update(&update);
             for c in cards_borrow.iter_mut() {
                 if c.config().id == update.model_id {
                     c.set_context(update.tokens_used, update.n_ctx);
                     if matches!(c.state(), CardState::Ready) {
                         c.set_speed(update.predicted_per_second);
+                        c.set_prompt_speed(update.prompt_per_second);
+                        c.set_stopwatch(update.elapsed_duration_sec);
                     }
+                }
+            }
+        }
+
+        // Sync Council telemetry from proxy state
+        if let Some(ref ps) = proxy_state {
+            if let Ok(state_lock) = ps.lock() {
+                if let Some(ref council_data) = state_lock.last_council_telemetry {
+                    bottom_deck.handle_council_telemetry(council_data, state_lock.enable_council);
+                } else {
+                    bottom_deck.ensure_council_pill(state_lock.enable_council);
                 }
             }
         }
@@ -306,15 +323,16 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                         };
 
                         let is_ok = result.is_ok();
-                        if !is_ok {
-                            let _ = bg_sender.send(ChannelMessage::SwitchCompleted {
-                                target_id: bg_target_id,
-                                result,
-                            });
-                        }
+                        let _ = bg_sender.send(ChannelMessage::SwitchCompleted {
+                            target_id: bg_target_id,
+                            result,
+                        });
 
                         if is_ok {
-                            while bg_ka.load(Ordering::SeqCst) {
+                            for _ in 0..10 {
+                                if !bg_ka.load(Ordering::SeqCst) {
+                                    break;
+                                }
                                 std::thread::sleep(std::time::Duration::from_millis(100));
                             }
                         }
@@ -333,6 +351,12 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
         while let Ok(msg) = import_receiver.try_recv() {
             match msg {
                 ImportMessage::ModelImported { model } => {
+                    bottom_deck
+                        .model_names
+                        .borrow_mut()
+                        .insert(model.id.clone(), model.name.clone());
+                    bottom_deck.refresh_view();
+
                     pm_for_import
                         .lock()
                         .unwrap_or_else(|e| {
@@ -344,6 +368,7 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                         .add_model(model.clone());
 
                     let mut card = ModelCard::new(&model);
+                    card.widget.set_visible(true);
                     card_box.borrow_mut().append(&card.widget);
 
                     wire_card_handlers(
@@ -358,6 +383,7 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                     );
 
                     cards_borrow.push(card);
+                    reorder_card_container(&cards_borrow);
                     tracing::info!(
                         "Appended card for newly imported model '{}' (port {})",
                         model.id,
@@ -369,6 +395,12 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                     name: new_name,
                     port: new_port,
                 } => {
+                    bottom_deck
+                        .model_names
+                        .borrow_mut()
+                        .insert(updated_id.clone(), new_name.clone());
+                    bottom_deck.refresh_view();
+
                     for c in cards_borrow.iter_mut() {
                         if c.config().id == updated_id {
                             c.update_model(&new_name, new_port);
@@ -376,9 +408,16 @@ pub fn attach_timeout_handler(ctx: TimeoutContext) {
                     }
                 }
                 ImportMessage::ModelDeleted { id: deleted_id } => {
-                    let len_before = cards_borrow.len();
-                    cards_borrow.retain(|c| c.config().id != deleted_id);
-                    if cards_borrow.len() < len_before {
+                    bottom_deck.model_names.borrow_mut().remove(&deleted_id);
+                    bottom_deck.telemetry_map.borrow_mut().remove(&deleted_id);
+                    bottom_deck.refresh_view();
+
+                    if let Some(pos) = cards_borrow
+                        .iter()
+                        .position(|c| c.config().id == deleted_id)
+                    {
+                        let removed_card = cards_borrow.remove(pos);
+                        card_box.borrow_mut().remove(&removed_card.widget);
                         tracing::info!("Removed card for deleted model '{}'", deleted_id);
                         reorder_card_container(&cards_borrow);
                     }

@@ -101,8 +101,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("");
 
-        assert!(all.contains("event: debate.started"));
-        assert!(all.contains("\"model\":\"council:debate\""));
+        assert!(all.contains("event: content_block_start"));
         assert!(all.contains("event: content_block_delta"));
         assert!(all.contains("Rust is awesome"));
         assert!(all.contains("event: message_stop"));
@@ -126,7 +125,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("");
 
-        assert!(all.contains("event: debate.started"));
+        assert!(all.contains("event: content_block_start"));
         assert!(all.contains("Debate aborted: all models timed out"));
         assert!(all.contains("event: message_stop"));
     }

@@ -39,8 +39,14 @@ pub struct SlotUpdate {
     pub tokens_used: usize,
     pub n_ctx: usize,
     pub predicted_per_second: f64,
-    #[allow(dead_code)]
     pub prompt_per_second: f64,
+    pub prompt_tokens: usize,
+    pub decoded_tokens: usize,
+    pub is_processing: bool,
+    /// Live elapsed duration in seconds. `None` when no active request.
+    /// `Some(0.0)` means the request just started. `Some(t)` is the latched total
+    /// when generation finishes (processing → idle).
+    pub elapsed_duration_sec: Option<f64>,
 }
 
 /// A polled /slots response for a single model.
@@ -49,6 +55,37 @@ pub struct SlotInfo {
     pub tokens_used: usize,
     pub n_ctx: usize,
     pub predicted_per_second: f64,
-    #[allow(dead_code)]
     pub prompt_per_second: f64,
+    pub prompt_tokens: usize,
+    pub decoded_tokens: usize,
+    /// Whether the slot is currently processing (has active tokens).
+    pub is_processing: bool,
+}
+
+/// Stage telemetry in a Council debate.
+#[derive(Debug, Clone, Default)]
+pub struct StageTelemetry {
+    pub stage_name: String,
+    #[allow(dead_code)]
+    pub model_id: String,
+    pub output_tokens: usize,
+    pub duration_sec: f64,
+    #[allow(dead_code)]
+    pub speed: f64,
+}
+
+/// Persistent telemetry metrics for a single model or council pipeline.
+#[derive(Debug, Clone, Default)]
+pub struct ModelTelemetry {
+    #[allow(dead_code)]
+    pub model_id: String,
+    pub prompt_tokens: usize,
+    pub prompt_speed: f64,
+    pub prompt_duration_sec: f64,
+    pub decode_tokens: usize,
+    pub decode_speed: f64,
+    pub elapsed_duration_sec: Option<f64>,
+    pub is_processing: bool,
+    pub council_stages: Vec<StageTelemetry>,
+    pub current_stage: Option<String>,
 }

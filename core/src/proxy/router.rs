@@ -115,11 +115,23 @@ pub fn handle_proxy_request(mut req: Request, state: Arc<Mutex<ProxyState>>, cli
                 model_id
             ).into_bytes());
 
+            let state_for_council = state.clone();
+            if let Ok(mut s) = state_for_council.lock() {
+                s.last_council_telemetry = Some(crate::proxy::state::CouncilTelemetryData {
+                    is_processing: true,
+                    current_stage: Some("1. Generating".to_string()),
+                    ..Default::default()
+                });
+            }
+
             std::thread::spawn(move || {
-                let outcome = engine.execute(&prompt);
+                let (outcome, _) = crate::proxy::council::run_council_and_record_telemetry(
+                    &engine,
+                    &prompt,
+                    &state_for_council,
+                );
                 let sse_events = build_council_sse_events(&outcome, &model_id);
-                // Skip the first message_start event since we already sent it
-                for event in sse_events.into_iter().skip(1) {
+                for event in sse_events {
                     if tx.send(event).is_err() {
                         break;
                     }

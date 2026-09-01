@@ -1,6 +1,7 @@
 //! SWAI — Main application window subsystem.
 
 pub mod adoption;
+pub mod bottom_deck;
 pub mod card_wiring;
 pub mod dialogs;
 pub mod footer;
@@ -12,6 +13,7 @@ pub mod styles;
 mod tests;
 pub mod timeout;
 pub mod types;
+pub mod watchdog;
 pub mod window;
 
 pub use types::ImportMessage;

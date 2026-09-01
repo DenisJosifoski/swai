@@ -99,8 +99,62 @@ impl Executor for ProxyExecutor {
     }
 }
 
+/// Execute council debate and record telemetry in ProxyState.
+pub fn run_council_and_record_telemetry(
+    engine: &crate::council::CouncilEngine<ProxyExecutor>,
+    prompt: &str,
+    state: &Arc<Mutex<ProxyState>>,
+) -> (DebateOutcome, Vec<crate::proxy::state::CouncilStageTelemetry>) {
+    let outcome = engine.execute(prompt);
+    let mut stages = Vec::new();
+    let mut total_tokens = 0;
+    let mut total_duration = 0.0;
+
+    let transcript_opt = match &outcome {
+        DebateOutcome::Success { transcript, .. }
+        | DebateOutcome::Partial { transcript, .. }
+        | DebateOutcome::Aborted { transcript, .. } => Some(transcript),
+    };
+
+    if let Some(transcript) = transcript_opt {
+        for (i, turn) in transcript.turns.iter().enumerate() {
+            let role_name = match turn.role {
+                crate::council::CouncilRole::Generator => "1. Generator",
+                crate::council::CouncilRole::Auditor => "2. Auditor",
+                crate::council::CouncilRole::Synthesizer => "3. Synthesizer",
+                crate::council::CouncilRole::Custom(ref s) => s.as_str(),
+            };
+            let stage_title = format!("Stage {} ({})", i + 1, role_name);
+            let tokens = (turn.output.len() / 4).max(1);
+            let dur_sec = turn.duration.as_secs_f64();
+            let speed = if dur_sec > 0.0 { tokens as f64 / dur_sec } else { 0.0 };
+            total_tokens += tokens;
+            total_duration += dur_sec;
+            stages.push(crate::proxy::state::CouncilStageTelemetry {
+                stage_name: stage_title,
+                model_id: turn.model_id.clone(),
+                output_tokens: tokens,
+                duration_sec: dur_sec,
+                speed_tokens_sec: speed,
+            });
+        }
+    }
+
+    if let Ok(mut s) = state.lock() {
+        s.last_council_telemetry = Some(crate::proxy::state::CouncilTelemetryData {
+            total_duration_sec: total_duration,
+            total_tokens,
+            is_processing: false,
+            current_stage: None,
+            stages: stages.clone(),
+        });
+    }
+
+    (outcome, stages)
+}
+
 /// Build SSE events for streaming a council debate outcome.
-pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<Vec<u8>> {
+pub fn build_council_sse_events(outcome: &DebateOutcome, _model_id: &str) -> Vec<Vec<u8>> {
     let mut events = Vec::new();
 
     let transcript = match outcome {
@@ -132,15 +186,6 @@ pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<
     let _ = std::fs::write(&log_path, md);
     tracing::info!("Council transcript saved to {}", log_path.display());
 
-    // debate.started event.
-    events.push(
-        format!(
-            "event: debate.started\ndata: {{\"type\":\"debate.started\",\"model\":\"{}\"}}\n\n",
-            model_id
-        )
-        .into_bytes(),
-    );
-
     // Stream the final response as text deltas (chunked for SSE).
     let final_text = match outcome {
         DebateOutcome::Success { final_response, .. } => final_response.clone(),
@@ -152,11 +197,6 @@ pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<
         }
         DebateOutcome::Aborted { reason, .. } => format!("Debate aborted: {}", reason),
     };
-    // Anthropic message_start
-    events.push(format!(
-        "event: message_start\ndata: {{\"type\": \"message_start\", \"message\": {{\"id\": \"msg_council\", \"type\": \"message\", \"role\": \"assistant\", \"content\": [], \"model\": \"{}\", \"stop_reason\": null, \"stop_sequence\": null, \"usage\": {{\"input_tokens\": 0, \"output_tokens\": 0}}}}}}\n\n",
-        model_id
-    ).into_bytes());
 
     // Anthropic content_block_start
     events.push(
@@ -172,16 +212,22 @@ pub fn build_council_sse_events(outcome: &DebateOutcome, model_id: &str) -> Vec<
         accumulated.push(*ch);
         if (i + 1) % chunk_size == 0 || i == chars.len() - 1 {
             let delta = &accumulated[prev_len..];
-            let escaped = escape_sse_text(delta);
-            events.push(format!(
-                "event: content_block_delta\ndata: {{\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {{\"type\": \"text_delta\", \"text\": \"{}\"}}}}\n\n",
-                escaped
-            ).into_bytes());
+            let delta_payload = serde_json::json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "text_delta",
+                    "text": delta
+                }
+            });
+            events.push(
+                format!("event: content_block_delta\ndata: {}\n\n", delta_payload).into_bytes(),
+            );
             prev_len = i + 1;
         }
     }
 
-    // Anthropic content_block_stop & message_delta
+    // Anthropic content_block_stop & message_delta & message_stop
     events.push(
         "event: content_block_stop\ndata: {\"type\": \"content_block_stop\", \"index\": 0}\n\nevent: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\", \"stop_sequence\": null}, \"usage\": {\"output_tokens\": 10}}\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n".to_string().into_bytes()
     );

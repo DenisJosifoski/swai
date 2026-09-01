@@ -194,6 +194,7 @@ impl ManageModelsDialog {
         let model_name_for_delete = model.name.clone();
         let pm_clone = std::sync::Arc::clone(process_manager);
         let sender_for_delete = import_sender.clone();
+        let row_for_delete = row.clone();
 
         delete_btn.connect_clicked(move |_| {
             Self::show_delete_confirmation(
@@ -201,6 +202,7 @@ impl ManageModelsDialog {
                 &model_name_for_delete,
                 &pm_clone,
                 &sender_for_delete,
+                Some(row_for_delete.clone()),
             );
         });
 
@@ -217,6 +219,7 @@ impl ManageModelsDialog {
         name: &str,
         process_manager: &std::sync::Arc<std::sync::Mutex<ProcessManager>>,
         import_sender: &std::sync::mpsc::Sender<ImportMessage>,
+        row_to_remove: Option<adw::ActionRow>,
     ) {
         // Check if the model is currently running.
         let is_running = {
@@ -284,6 +287,9 @@ impl ManageModelsDialog {
                 Ok(mut pm) => match pm.remove_model(&id_clone) {
                     Ok(()) => {
                         tracing::info!("Model '{}' deleted successfully", id_clone);
+                        if let Some(ref r) = row_to_remove {
+                            r.unparent();
+                        }
                         let _ = sender_clone.send(ImportMessage::ModelDeleted {
                             id: id_clone.clone(),
                         });

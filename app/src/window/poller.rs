@@ -1,6 +1,3 @@
-use gio::prelude::ApplicationExt;
-use gio::Notification;
-use glib::object::Cast;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -8,6 +5,7 @@ use swai_core::process_manager::ProcessManager;
 use swai_core::proxy::ProxyState;
 
 use super::types::{ChannelMessage, SlotInfo, SlotUpdate};
+use super::watchdog::trigger_auto_restart;
 
 pub fn spawn_context_poller(
     pm: Arc<Mutex<ProcessManager>>,
@@ -28,6 +26,12 @@ pub fn spawn_context_poller(
     std::thread::spawn(move || {
         let mut last_poll_attempt = std::time::Instant::now();
         let mut last_tokens: std::collections::HashMap<String, (usize, std::time::Instant)> =
+            std::collections::HashMap::new();
+
+        // ── Live Execution Stopwatch ────────────────────────────
+        let mut request_start: std::collections::HashMap<String, std::time::Instant> =
+            std::collections::HashMap::new();
+        let mut last_was_processing: std::collections::HashMap<String, bool> =
             std::collections::HashMap::new();
 
         while poll_running_clone.load(Ordering::SeqCst) {
@@ -57,8 +61,26 @@ pub fn spawn_context_poller(
                                 if let Some(slot_info) = parse_slots_response(&body) {
                                     let now = std::time::Instant::now();
                                     let mut calculated_speed = slot_info.predicted_per_second;
+                                    let mut prompt_speed = slot_info.prompt_per_second;
 
-                                    // Fallback: Delta Token Speedometer if llama-server doesn't provide predicted_per_second
+                                    // Check Prometheus /metrics endpoint on llama-server
+                                    let metrics_url = format!("http://127.0.0.1:{}/metrics", port);
+                                    if let Ok(m_resp) = http_client.get(&metrics_url).send() {
+                                        if m_resp.status().is_success() {
+                                            if let Ok(m_body) = m_resp.text() {
+                                                let (p_speed, g_speed) =
+                                                    parse_metrics_response(&m_body);
+                                                if prompt_speed == 0.0 && p_speed > 0.0 {
+                                                    prompt_speed = p_speed;
+                                                }
+                                                if calculated_speed == 0.0 && g_speed > 0.0 {
+                                                    calculated_speed = g_speed;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Fallback: Delta Token Speedometer
                                     if calculated_speed == 0.0 {
                                         if let Some(&(prev_tokens, prev_time)) =
                                             last_tokens.get(model_id)
@@ -76,12 +98,41 @@ pub fn spawn_context_poller(
                                     last_tokens
                                         .insert(model_id.clone(), (slot_info.tokens_used, now));
 
+                                    // ── Live Execution Stopwatch Logic ──────
+                                    let was_processing =
+                                        last_was_processing.get(model_id).copied().unwrap_or(false);
+                                    let is_processing = slot_info.is_processing;
+
+                                    if is_processing && request_start.get(model_id).is_none() {
+                                        request_start.insert(model_id.clone(), now);
+                                    }
+
+                                    let elapsed_duration = if is_processing {
+                                        // Still processing — calculate live elapsed time
+                                        request_start
+                                            .get(model_id)
+                                            .map(|start| start.elapsed().as_secs_f64())
+                                    } else if was_processing {
+                                        // Just finished processing — latch the final duration
+                                        request_start
+                                            .remove(model_id)
+                                            .map(|start| start.elapsed().as_secs_f64())
+                                    } else {
+                                        None
+                                    };
+
+                                    last_was_processing.insert(model_id.clone(), is_processing);
+
                                     let _ = slot_sender.send(SlotUpdate {
                                         model_id: model_id.clone(),
                                         tokens_used: slot_info.tokens_used,
                                         n_ctx: slot_info.n_ctx,
                                         predicted_per_second: calculated_speed,
-                                        prompt_per_second: slot_info.prompt_per_second,
+                                        prompt_per_second: prompt_speed,
+                                        prompt_tokens: slot_info.prompt_tokens,
+                                        decoded_tokens: slot_info.decoded_tokens,
+                                        is_processing: slot_info.is_processing,
+                                        elapsed_duration_sec: elapsed_duration,
                                     });
 
                                     if auto_restart_enabled
@@ -155,11 +206,15 @@ pub fn parse_slots_response(body: &str) -> Option<SlotInfo> {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as usize;
             let mut tokens_used: u64 = 0;
+            let mut prompt_tokens_acc: usize = 0;
+            let mut decoded_tokens_acc: usize = 0;
             let (mut predicted_per_second, mut prompt_per_second) = (0.0, 0.0);
+            let mut is_processing = false;
 
             for slot in arr {
                 let prompt = slot
-                    .get("n_prompt_tokens")
+                    .get("n_prompt_tokens_processed")
+                    .or_else(|| slot.get("n_prompt_tokens"))
                     .or_else(|| slot.get("prompt_tokens_total"))
                     .or_else(|| slot.get("n_past"))
                     .and_then(|v| v.as_u64())
@@ -176,6 +231,24 @@ pub fn parse_slots_response(body: &str) -> Option<SlotInfo> {
                     .unwrap_or(0);
 
                 tokens_used += prompt + gen;
+                prompt_tokens_acc += prompt as usize;
+                decoded_tokens_acc += gen as usize;
+
+                // Detect processing state directly from llama-server's slot status.
+                if !is_processing {
+                    if slot
+                        .get("is_processing")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
+                        is_processing = true;
+                    } else if gen > 0 || prompt > 0 {
+                        let (p, pr) = extract_speed(slot);
+                        if p > 0.0 || pr > 0.0 {
+                            is_processing = true;
+                        }
+                    }
+                }
 
                 // Accumulate speed metrics (take the first valid values).
                 if predicted_per_second == 0.0 {
@@ -193,6 +266,9 @@ pub fn parse_slots_response(body: &str) -> Option<SlotInfo> {
                     n_ctx,
                     predicted_per_second,
                     prompt_per_second,
+                    prompt_tokens: prompt_tokens_acc,
+                    decoded_tokens: decoded_tokens_acc,
+                    is_processing,
                 });
             }
         }
@@ -201,12 +277,16 @@ pub fn parse_slots_response(body: &str) -> Option<SlotInfo> {
     // Case B: Top-level Object.
     let n_ctx = json.get("n_ctx").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let mut tokens_used: u64 = 0;
+    let mut prompt_tokens_acc: usize = 0;
+    let mut decoded_tokens_acc: usize = 0;
     let (mut predicted_per_second, mut prompt_per_second) = (0.0, 0.0);
+    let mut is_processing = false;
 
     if let Some(slots) = json.get("slots").and_then(|v| v.as_array()) {
         for slot in slots {
             let prompt = slot
-                .get("n_prompt_tokens")
+                .get("n_prompt_tokens_processed")
+                .or_else(|| slot.get("n_prompt_tokens"))
                 .or_else(|| slot.get("prompt_tokens_total"))
                 .or_else(|| slot.get("n_past"))
                 .and_then(|v| v.as_u64())
@@ -223,6 +303,24 @@ pub fn parse_slots_response(body: &str) -> Option<SlotInfo> {
                 .unwrap_or(0);
 
             tokens_used += prompt + gen;
+            prompt_tokens_acc += prompt as usize;
+            decoded_tokens_acc += gen as usize;
+
+            // Detect processing state
+            if !is_processing {
+                if slot
+                    .get("is_processing")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
+                    is_processing = true;
+                } else if gen > 0 || prompt > 0 {
+                    let (p, pr) = extract_speed(slot);
+                    if p > 0.0 || pr > 0.0 {
+                        is_processing = true;
+                    }
+                }
+            }
 
             // Accumulate speed metrics (take the first valid values).
             if predicted_per_second == 0.0 {
@@ -241,131 +339,30 @@ pub fn parse_slots_response(body: &str) -> Option<SlotInfo> {
             n_ctx,
             predicted_per_second,
             prompt_per_second,
+            prompt_tokens: prompt_tokens_acc,
+            decoded_tokens: decoded_tokens_acc,
+            is_processing,
         })
     } else {
         None
     }
 }
 
-/// Trigger an auto-restart when context is full (>=98% of n_ctx).
-pub fn trigger_auto_restart(
-    pm: &Arc<Mutex<ProcessManager>>,
-    sender: &std::sync::mpsc::Sender<ChannelMessage>,
-    slot_sender: &std::sync::mpsc::Sender<SlotUpdate>,
-    proxy_state: &Option<Arc<Mutex<ProxyState>>>,
-    model_id: &str,
-    enable_notifications: bool,
-    n_ctx: usize,
-) {
-    static LAST_RESTART: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-    let now_sec = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-
-    let last_sec = LAST_RESTART.load(Ordering::Relaxed);
-    if now_sec > 0 && last_sec > 0 && now_sec < last_sec + 15 {
-        tracing::info!(
-            "auto-restart for '{}' suppressed by 15s cooldown guard",
-            model_id
-        );
-        return;
-    }
-    LAST_RESTART.store(now_sec, Ordering::Relaxed);
-
-    // Immediately reset the UI progress bar tokens to 0 so stale 98% metrics don't re-trigger.
-    let _ = slot_sender.send(SlotUpdate {
-        model_id: model_id.to_string(),
-        tokens_used: 0,
-        n_ctx,
-        predicted_per_second: 0.0,
-        prompt_per_second: 0.0,
-    });
-
-    let bg_model_id = model_id.to_string();
-    let bg_pm = Arc::clone(pm);
-    let bg_sender = sender.clone();
-    let bg_proxy = proxy_state.clone();
-    let bg_enable_notifications = enable_notifications;
-
-    std::thread::spawn(move || {
-        let _ = bg_sender.send(ChannelMessage::RestartRequested {
-            model_id: bg_model_id.clone(),
-        });
-
-        let result = {
-            let mut pm_lock = match bg_pm.lock() {
-                Ok(g) => g,
-                Err(_) => return,
-            };
-
-            // Stop the model regardless of whether it's primary or secondary.
-            let _ = pm_lock.stop_model(&bg_model_id, true);
-            std::thread::sleep(std::time::Duration::from_millis(1500));
-
-            pm_lock.start_model(&bg_model_id)
-        };
-
-        let is_ok = result.is_ok();
-
-        // The health monitor drives the final state.
-        // Only send SwitchCompleted on failure.
-        if !is_ok {
-            let _ = bg_sender.send(ChannelMessage::SwitchCompleted {
-                target_id: bg_model_id.clone(),
-                result,
-            });
-        }
-
-        if is_ok && bg_enable_notifications {
-            // Schedule notification on the main (GLib) thread.
-            let auto_restart_body = format!("Context full - {} restarted", bg_model_id);
-            glib::idle_add_once(move || {
-                notify("SWAI", &auto_restart_body);
-            });
-
-            if let Some(ref proxy) = bg_proxy {
-                let mut ps = proxy.lock().unwrap_or_else(|e| {
-                    tracing::error!("auto-restart: proxy state lock poisoned");
-                    e.into_inner()
-                });
-                let running = bg_pm
-                    .lock()
-                    .ok()
-                    .map(|pm| pm.running_model_ports())
-                    .unwrap_or_default();
-                ps.sync_models(running);
+/// Parse prompt_per_second and predicted_per_second from /metrics Prometheus text.
+pub fn parse_metrics_response(body: &str) -> (f64, f64) {
+    let mut prompt_speed = 0.0;
+    let mut gen_speed = 0.0;
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("llamacpp:prompt_tokens_seconds ") {
+            if let Some(val_str) = trimmed.strip_prefix("llamacpp:prompt_tokens_seconds ") {
+                prompt_speed = val_str.trim().parse::<f64>().unwrap_or(0.0);
+            }
+        } else if trimmed.starts_with("llamacpp:predicted_tokens_seconds ") {
+            if let Some(val_str) = trimmed.strip_prefix("llamacpp:predicted_tokens_seconds ") {
+                gen_speed = val_str.trim().parse::<f64>().unwrap_or(0.0);
             }
         }
-    });
-}
-
-/// Send a native desktop toast notification across GNOME, KDE, and all Linux desktops.
-pub fn notify(title: &str, body: &str) {
-    // Try notify-send first (direct DBus notification to org.freedesktop.Notifications for GNOME/KDE).
-    let res = std::process::Command::new("notify-send")
-        .arg("-i")
-        .arg("swai")
-        .arg("-a")
-        .arg("SWAI")
-        .arg(title)
-        .arg(body)
-        .status();
-
-    if res.is_ok() && res.unwrap().success() {
-        return;
     }
-
-    // Fallback to GIO Application notification if notify-send is unavailable.
-    let notification = Notification::new("");
-    notification.set_title(title);
-    notification.set_body(Some(body));
-    notification.set_icon(&gio::ThemedIcon::new("swai"));
-
-    let app = gio::Application::default().and_then(|app| app.downcast::<adw::Application>().ok());
-
-    if let Some(app) = app {
-        app.send_notification(Some("swai-notification"), &notification);
-    }
+    (prompt_speed, gen_speed)
 }

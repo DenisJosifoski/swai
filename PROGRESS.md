@@ -1619,5 +1619,43 @@ Implemented a Unix Domain Socket IPC interface so terminal commands (`swai start
 - Total: 344/344 unit and integration tests passed (0 failures)
 - All touched files strictly under 450 lines
 
+## Phase 32 — Split Live Prompt & Generation Telemetry with Fixed Bottom Deck
+
+### What was built
+
+1. **Prometheus `/metrics` and `/slots` Dual Speed Extraction (`app/src/window/poller.rs`, `types.rs`)**:
+   - Poller parses both `prompt_per_second` (prefill / ingest rate) and `predicted_per_second` (decode rate) from llama-server's `/slots` and `/metrics` Prometheus API.
+   - Extracts exact prompt and decode token counts (`prompt_tokens`, `decoded_tokens`).
+   - Detects active processing state across multiple slots.
+
+2. **Live Execution Stopwatch (`app/src/window/poller.rs`, `timeout.rs`)**:
+   - Tracks request start timestamp when a slot transitions from idle → processing (`Instant::now()`).
+   - Emits live elapsed duration during generation (`⏱️ 0.0s` → `⏱️ 4.2s`).
+   - Latches and freezes the final total execution time (e.g. `⏱️ 4.4s`) along with the finished speeds when generation completes.
+
+3. **Fixed Bottom Control & Telemetry Deck (`app/src/window/bottom_deck.rs`, `styles.rs`)**:
+   - Pinned above the footer bar; never scrolls off-screen even with many model cards.
+   - **Left Action Card (🌐 Web AI Chat):** Displays active proxy port URL (`http://127.0.0.1:9080`) and an "Open in Browser ↗" button/card that launches the user's default browser on click.
+   - **Right Telemetry Card (📊 Telemetry Inspector):** Displays detailed prompt and decode breakdown (`📥 Prompt: 25 tok · 0.1s · 250.1 t/s` and `⚡ Decode: 141 tok · 4.4s · 31.9 t/s (⏱️ 4.4s total)`).
+   - **Multi-Model Switcher Pills:** Cached GTK pill rendering with active CSS updates so model pills can be switched smoothly without losing click focus.
+   - **Click-to-Inspect:** Clicking anywhere on any model card in the top list instantly sets the bottom telemetry deck to inspect that model.
+   - **Council Stage Telemetry:** Tracks Council debate multi-stage metrics dynamically.
+
+4. **Lifecycle & Resiliency Hardening**:
+   - **Fast Model Turn-Off:** Background async SIGKILL escalation for sub-second shutdowns.
+   - **Telemetry Map Cleanup:** Stopped models are cleanly removed from telemetry pills.
+   - **Claude Code Council Streaming:** Fixed duplicate `message_start` events and JSON string serialization to eliminate SSE stream truncation.
+   - **`llama-server` `--jinja` Resiliency:** Added `sanitize_messages_for_jinja` to automatically convert intermediate `system` roles to `user`, preventing 500 exceptions when using Jinja templates.
+   - **Model Deletion Persistence:** Wired `save_to_disk()` into `ProcessManager::remove_model` and unparented deleted cards/rows immediately from UI and `config.toml`.
+   - **Live Dynamic Model Import:** Newly added/imported models appear in the window immediately without requiring a SWAI restart.
+   - **Non-Blocking Startup Validation:** Missing/renamed script files log warnings and display `⚠️ Script not found` on the card instead of blocking SWAI startup.
+
+### Test results
+- `cargo check --workspace`: 0 errors, 0 warnings
+- `cargo test --workspace -- --test-threads=1`: 345/345 unit and integration tests passed (0 failures)
+- All files strictly under 450 lines (aiming < 380 lines)
+
+
+
 
 

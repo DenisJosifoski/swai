@@ -58,15 +58,8 @@ impl ProcessManager {
     /// If the model is currently running, stops it first (graceful shutdown).
     /// Returns `Err` if the model is not found in config.
     pub fn remove_model(&mut self, id: &str) -> Result<(), String> {
-        // If the model is currently running, stop it first.
-        if self
-            .running_models
-            .iter()
-            .position(|m| m.id == id)
-            .is_some()
-        {
+        if self.running_models.iter().any(|m| m.id == id) {
             info!("stopping model '{}' before removal", id);
-            // Use graceful shutdown (not fast) — deletion isn't an emergency.
             if let Err(e) = self.stop_model(id, false) {
                 warn!("failed to stop model '{}' before removal: {}", id, e);
             }
@@ -78,6 +71,10 @@ impl ProcessManager {
 
         if self.config.models.len() == initial_len {
             return Err(format!("model '{}' not found in config", id));
+        }
+
+        if let Err(e) = self.config.save_to_disk() {
+            warn!("failed to save config to disk after removing model '{}': {}", id, e);
         }
 
         info!("removed model '{}' from config", id);
@@ -208,8 +205,8 @@ impl ProcessManager {
     /// Stops the current model, waits 500ms for CUDA context release,
     /// then starts the new model. If any step fails, affected state is cleaned up.
     pub fn switch_model(&mut self, from_id: &str, to_id: &str) -> Result<(), ProcessError> {
-        // Step 1: stop the current model
-        self.stop_model(from_id, false)?;
+        // Step 1: stop the current model with fast shutdown
+        self.stop_model(from_id, true)?;
 
         // Step 2: short delay for CUDA context release
         std::thread::sleep(Duration::from_millis(500));
@@ -412,15 +409,7 @@ impl ProcessManager {
         self.start_model(id)?;
 
         // Extract the port from config for health monitoring
-        let model_port = self
-            .config
-            .models
-            .iter()
-            .find(|m| m.id == id)
-            .map(|m| m.port);
-
-        if let Some(port) = model_port {
-            // Spawn background health monitor thread that reports state changes.
+        if let Some(port) = self.config.models.iter().find(|m| m.id == id).map(|m| m.port) {
             let monitor = HealthMonitor::new(port, 30);
             std::thread::spawn(move || {
                 monitor.wait_until_ready_with_updates(tx);
@@ -431,26 +420,13 @@ impl ProcessManager {
     }
 
     /// Resolve a model identifier (id or name) to the port of its running instance.
-    ///
-    /// Returns `None` if the model is not currently running, allowing the proxy
-    /// to fall back to the primary active model.
     pub fn resolve_running_port(&self, identifier: &str) -> Option<u16> {
-        // Try matching by id first, then by name (config.name).
         for model in &self.running_models {
             if model.id == identifier {
                 return self.get_port_for_model(&model.id);
             }
-        }
-        // Check config names for a running model.
-        if self.config.models.iter().any(|c| c.name == identifier) {
-            // Find the running model that matches this name.
-            for model in &self.running_models {
-                if let Some(cfg) = self
-                    .config
-                    .models
-                    .iter()
-                    .find(|c| c.name == identifier && c.id == model.id)
-                {
+            if let Some(cfg) = self.config.models.iter().find(|c| c.id == model.id) {
+                if cfg.name == identifier {
                     return Some(cfg.port);
                 }
             }

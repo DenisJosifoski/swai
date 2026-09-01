@@ -9,15 +9,15 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use swai_core::config::Config;
-use swai_core::process_manager::{Pid, PortState, ProcessManager};
+use swai_core::process_manager::ProcessManager;
 use swai_core::proxy::ProxyState;
 use swai_core::reconciler::Reconciler;
 
 use crate::logs_panel::LogViewerWindow;
-use crate::model_card::{CardState, ModelCard};
+use crate::model_card::ModelCard;
 use crate::tray::{TrayAction, WindowAction};
 
-use super::adoption::{build_adoption_banner, show_adopt_model_dialog};
+use super::adoption::{build_adoption_banner, restore_running_models, show_adopt_model_dialog};
 use super::card_wiring::wire_card_handlers;
 use super::footer::{build_cards_container, build_footer_bar, reorder_card_container};
 use super::header::{build_header_bar, wire_actions};
@@ -45,6 +45,7 @@ pub struct MainWindow {
     footer_proxy_label: gtk::Label,
     footer_model_label: gtk::Label,
     unmanaged_banner: Option<adw::Banner>,
+    pub bottom_deck: super::bottom_deck::BottomDeck,
 }
 
 impl MainWindow {
@@ -93,6 +94,9 @@ impl MainWindow {
         let cards_scroll = build_cards_container(&card_box.borrow());
         main_vbox.append(&cards_scroll);
 
+        let bottom_deck = super::bottom_deck::BottomDeck::new(config.proxy_port(), &config);
+        main_vbox.append(&bottom_deck.container);
+
         let (footer_bar, footer_proxy_label, footer_model_label) =
             build_footer_bar(config.proxy_port());
         let footer_model_label_clone = footer_model_label.clone();
@@ -136,42 +140,7 @@ impl MainWindow {
 
         let current_keep_alive = Rc::new(RefCell::new(None::<Arc<AtomicBool>>));
 
-        let mut restored_model_id = None;
-        {
-            let mut pm_guard = pm.lock().unwrap_or_else(|e| e.into_inner());
-            let mut running_model_found = None;
-            for model in pm_guard.config().models.iter() {
-                if matches!(
-                    ProcessManager::check_port(model.port),
-                    PortState::OccupiedByModel
-                ) {
-                    let pid = ProcessManager::get_port_pid(model.port).ok();
-                    running_model_found = Some((model.clone(), pid));
-                    break;
-                }
-            }
-            if let Some((model, pid)) = running_model_found {
-                restored_model_id = Some(model.id.clone());
-                let guard = swai_core::process_manager::LinuxProcessGuard {
-                    pid: pid.map(|p| Pid::from_raw(p as i32)),
-                    port: model.port,
-                    shutdown_timeout_sec: 10,
-                };
-                pm_guard.set_running_model(swai_core::process_manager::RunningModel {
-                    id: model.id.clone(),
-                    guard: Box::new(guard),
-                    state: swai_core::process_manager::ModelState::Ready,
-                });
-            }
-        }
-
-        if let Some(restored_id) = &restored_model_id {
-            for c in cards.borrow_mut().iter_mut() {
-                if c.config().id == *restored_id {
-                    c.set_state(CardState::Ready);
-                }
-            }
-        }
+        restore_running_models(&pm, &cards);
 
         let close_requested = Rc::new(RefCell::new(false));
         let tray_host_available = crate::tray::tray_host_available();
@@ -349,6 +318,7 @@ impl MainWindow {
             tray_receiver,
             quit_receiver,
             import_receiver,
+            bottom_deck: bottom_deck.clone(),
         });
 
         let pm_poll = Arc::clone(&pm);
@@ -383,6 +353,15 @@ impl MainWindow {
                     &log_viewer,
                     &config,
                 );
+
+                // Option C: Click card to inspect telemetry in bottom deck
+                let m_id = card.config().id.clone();
+                let deck_click = bottom_deck.clone();
+                let gesture = gtk::GestureClick::new();
+                gesture.connect_released(move |_, _, _, _| {
+                    deck_click.select_model(&m_id);
+                });
+                card.widget.add_controller(gesture);
             }
         }
 
@@ -425,6 +404,7 @@ impl MainWindow {
             footer_proxy_label,
             footer_model_label,
             unmanaged_banner,
+            bottom_deck,
         }
     }
 

@@ -53,6 +53,14 @@ impl Config {
         Self::validate(&raw, &path)
     }
 
+    /// Save configuration to the resolved config.toml file on disk.
+    pub fn save_to_disk(&self) -> Result<(), String> {
+        let path = Self::resolve_path().ok_or_else(|| "No config.toml path resolved".to_string())?;
+        let content = toml::to_string_pretty(self).map_err(|e| format!("Serialization error: {}", e))?;
+        std::fs::write(&path, content).map_err(|e| format!("File write error: {}", e))?;
+        Ok(())
+    }
+
     /// Validate a loaded config.
     pub fn validate(config: &Self, _config_path: &Path) -> Result<Self, ConfigError> {
         let mut seen_ports: std::collections::HashSet<u16> = std::collections::HashSet::new();
@@ -74,11 +82,11 @@ impl Config {
 
         for model in &config.models {
             if !model.script_path.exists() {
-                return Err(ConfigError::Validation(format!(
+                tracing::warn!(
                     "script not found: {} (configured for model '{}')",
                     model.script_path.display(),
                     model.id,
-                )));
+                );
             }
         }
 

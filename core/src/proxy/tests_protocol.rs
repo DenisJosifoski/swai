@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
     use super::super::ollama::*;
-    use super::super::ollama_streaming::*;
-    use super::super::ollama_types::*;
     use super::super::openai::*;
     use super::super::router::error_response;
     use super::super::state::ProxyState;
@@ -383,5 +381,25 @@ mod tests {
 
         let empty = b"";
         assert_eq!(resolve_target_port(&state, empty), None);
+    }
+
+    #[test]
+    fn test_sanitize_messages_for_jinja() {
+        use super::super::anthropic::sanitize_messages_for_jinja;
+        let mut payload = serde_json::json!({
+            "messages": [
+                {"role": "system", "content": "initial system"},
+                {"role": "user", "content": "hello"},
+                {"role": "system", "content": "injected reminder"},
+                {"role": "assistant", "content": "hi"}
+            ]
+        });
+
+        sanitize_messages_for_jinja(&mut payload);
+        let msgs = payload["messages"].as_array().unwrap();
+        assert_eq!(msgs[0]["role"], "system");
+        assert_eq!(msgs[1]["role"], "user");
+        assert_eq!(msgs[2]["role"], "user"); // Converted from system!
+        assert_eq!(msgs[3]["role"], "assistant");
     }
 }
